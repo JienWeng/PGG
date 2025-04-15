@@ -1,0 +1,28 @@
+# Generated data files
+*.csv
+
+# Generated plots
+*.png
+
+# Results directories
+results/
+results_analysis/
+results_action=*/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
