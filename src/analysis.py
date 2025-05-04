@@ -12,240 +12,168 @@ def load_metrics(filename: str) -> Dict[str, List[float]]:
     return {col: df[col].tolist() for col in df.columns}
 
 def smooth_metrics(metrics: Dict[str, List[float]], window: int = 50) -> Dict[str, List[float]]:
-    """
-    Apply moving average smoothing to metrics.
-    
-    Args:
-        metrics: Dictionary of metric arrays
-        window: Moving average window size
-        
-    Returns:
-        Dictionary of smoothed metric arrays
-    """
+    """Apply moving average smoothing to metrics."""
     smoothed = {}
     for key, values in metrics.items():
-        if key != 'episode':  # Don't smooth episode numbers
+        if key != 'episode':
             series = pd.Series(values)
             smoothed[key] = series.rolling(window=window, min_periods=1, center=True).mean().tolist()
         else:
             smoothed[key] = values
     return smoothed
 
-def plot_metrics(
-    q_metrics: Dict[str, List[float]],
-    double_q_metrics: Dict[str, List[float]],
-    output_dir: str,
-    r: float
-) -> None:
-    """Plot episode-wise metrics."""
+def plot_metrics(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float) -> None:
+    """Plot all metrics with consistent settings."""
+    # Plotting settings
+    plt.rcParams.update({
+        'figure.figsize': (10, 6),
+        'lines.linewidth': 2.0,
+        'font.size': 12,
+        'axes.titlesize': 14,
+        'axes.labelsize': 12,
+        'xtick.labelsize': 10,
+        'ytick.labelsize': 10,
+        'legend.fontsize': 10,
+        'figure.dpi': 300
+    })
+    
+    # Data collection settings
+    window = 50  # Smoothing window
+    last_n = 1000  # Analysis of last N episodes
+    
+    # Create output directory structure
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    
-    # Apply smoothing with larger window for smoother curves
-    window = 100  # Increased window size for smoother plots
-    q_smoothed = smooth_metrics(q_metrics, window)
-    double_q_smoothed = smooth_metrics(double_q_metrics, window)
-    episodes = range(len(q_smoothed['avg_contribution']))
-    
-    # Set style for better visualization
-    plt.style.use('seaborn-paper')
-    plt.rcParams['lines.linewidth'] = 2.0
-    plt.rcParams['axes.grid'] = True
-    plt.rcParams['grid.alpha'] = 0.3
-    
-    # Common figure settings
-    figure_settings = {
-        'figsize': (10, 6),
-    }
-    
-    # Common plot settings
-    plot_settings = {
-        'alpha': 0.8,
-    }
-    
-    # Colors for individual agent plots
-    colors = plt.cm.viridis(np.linspace(0, 1, 4))
+    analysis_dir = os.path.join(output_dir, f'analysis_r{r}')
+    Path(analysis_dir).mkdir(parents=True, exist_ok=True)
 
-    # 1. Average Contribution Comparison
-    plt.figure(**figure_settings)
-    plt.plot(episodes, q_smoothed['avg_contribution'], label='Q-Learning', **plot_settings)
-    plt.plot(episodes, double_q_smoothed['avg_contribution'], label='Double Q-Learning', **plot_settings)
-    plt.xlabel('Episode')
-    plt.ylabel('Average Contribution')
-    plt.title(f'Contribution Comparison (r={r})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f'{output_dir}/contribution_comparison_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
+    # Objective 1: Normalized contribution rates and social welfare
+    plot_normalized_contributions(q_metrics, double_q_metrics, output_dir, r)
+    analyze_social_welfare(q_metrics, double_q_metrics, output_dir, r)
+    
+    # Objective 2: Individual contributions
+    plot_individual_contributions(q_metrics, double_q_metrics, output_dir, r)
+    
+    # Objective 3: Shapley value analysis
+    plot_shapley_analysis(q_metrics, double_q_metrics, output_dir, r)
 
-    # 2. Social Welfare Comparison
-    plt.figure(**figure_settings)
-    plt.plot(episodes, q_smoothed['social_welfare'], label='Q-Learning', **plot_settings)
-    plt.plot(episodes, double_q_smoothed['social_welfare'], label='Double Q-Learning', **plot_settings)
-    plt.xlabel('Episode')
-    plt.ylabel('Social Welfare')
-    plt.title(f'Social Welfare Comparison (r={r})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f'{output_dir}/welfare_comparison_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
+def plot_normalized_contributions(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
+    """Plot normalized contribution rates against r_t for each endowment."""
+    fig, ax = plt.subplots()
+    markers = ['o', 's', '^', 'D']
+    colors = plt.cm.Set2(np.linspace(0, 1, 4))
     
-    # 3. Gini Coefficient Comparison
-    plt.figure(**figure_settings)
-    plt.plot(episodes, q_smoothed['gini_coefficient'], label='Q-Learning', **plot_settings)
-    plt.plot(episodes, double_q_smoothed['gini_coefficient'], label='Double Q-Learning', **plot_settings)
-    plt.xlabel('Episode')
-    plt.ylabel('Gini Coefficient')
-    plt.title(f'Inequality Comparison (r={r})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f'{output_dir}/gini_comparison_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
-    
-    # 4. Action Diversity Comparison
-    plt.figure(**figure_settings)
-    plt.plot(episodes, q_smoothed['action_diversity'], label='Q-Learning', **plot_settings)
-    plt.plot(episodes, double_q_smoothed['action_diversity'], label='Double Q-Learning', **plot_settings)
-    plt.xlabel('Episode')
-    plt.ylabel('Action Diversity')
-    plt.title(f'Action Diversity Comparison (r={r})')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f'{output_dir}/action_diversity_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
-    
-    # 5. Individual Contributions (Q-Learning)
-    plt.figure(**figure_settings)
-    for i in range(4):
-        plt.plot(episodes, q_smoothed[f'agent_{i}_contrib'], 
-                label=f'Agent {i} (e={0.5*(i+1)})',
-                color=colors[i],
-                **plot_settings)
-    plt.xlabel('Episode')
-    plt.ylabel('Contribution')
-    plt.title(f'Individual Contributions - Q-Learning (r={r})')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/q_individual_contribs_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
-    
-    # 6. Individual Contributions (Double Q-Learning)
-    plt.figure(**figure_settings)
-    for i in range(4):
-        plt.plot(episodes, double_q_smoothed[f'agent_{i}_contrib'], 
-                label=f'Agent {i} (e={0.5*(i+1)})',
-                color=colors[i],
-                **plot_settings)
-    plt.xlabel('Episode')
-    plt.ylabel('Contribution')
-    plt.title(f'Individual Contributions - Double Q-Learning (r={r})')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/double_q_individual_contribs_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
-    
-    # 7. Final Contributions Comparison
-    plt.figure(**figure_settings)
-    final_q = q_smoothed['avg_contribution'][-1]
-    final_double_q = double_q_smoothed['avg_contribution'][-1]
-    plt.bar(['Q-Learning', 'Double Q-Learning'], [final_q, final_double_q], alpha=0.8)
-    plt.ylabel('Final Average Contribution')
-    plt.title(f'Final Contribution Comparison (r={r})')
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f'{output_dir}/final_contribution_r{r}.png', bbox_inches='tight', dpi=300)
-    plt.close()
-
-def plot_heatmap(
-    q_qvalues: pd.DataFrame,
-    double_q_qvalues: pd.DataFrame,
-    output_dir: str,
-    r: float
-) -> None:
-    """Plot Q-value heatmaps."""
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    
-    # Process Q-Learning heatmaps
-    for agent in q_qvalues['agent'].unique():
-        agent_data = q_qvalues[q_qvalues['agent'] == agent].copy()  # Create explicit copy
-        pivot_table = pd.pivot_table(
-            agent_data,
-            values='q_value',
-            index='state',
-            columns='action'
-        )
+    for i, e in enumerate([0.5 * (i+1) for i in range(4)]):
+        # Q-Learning
+        norm_contrib = [c/e * 100 for c in q_metrics[f'agent_{i}_contrib']]
+        ax.scatter(r * np.ones_like(norm_contrib[-1000:]), norm_contrib[-1000:],
+                  marker=markers[i], c=[colors[i]], alpha=0.3,
+                  label=f'Q-Learn e={e}')
         
-        plt.figure(figsize=(12, 8))
-        sns.heatmap(pivot_table, center=0)
-        plt.title(f'Q-Values Heatmap - Agent {agent} (r={r})')
-        plt.xlabel('Action')
-        plt.ylabel('State')
-        plt.tight_layout()
-        plt.savefig(f'{output_dir}/q_heatmap_agent_{agent}_r{r}.png')
-        plt.close()
+        # Double Q-Learning
+        norm_contrib = [c/e * 100 for c in double_q_metrics[f'agent_{i}_contrib']]
+        ax.scatter(r + 0.1 + np.zeros_like(norm_contrib[-1000:]), norm_contrib[-1000:],
+                  marker=markers[i], c=[colors[i]], alpha=0.3,
+                  label=f'Double-Q e={e}')
     
-    # Process Double Q-Learning heatmaps
-    for agent in double_q_qvalues['agent'].unique():
-        agent_data = double_q_qvalues[double_q_qvalues['agent'] == agent].copy()  # Create explicit copy
-        agent_data.loc[:, 'avg_q'] = (agent_data['q_a_value'] + agent_data['q_b_value']) / 2
-        pivot_table = pd.pivot_table(
-            agent_data,
-            values='avg_q',
-            index='state',
-            columns='action'
-        )
-        
-        plt.figure(figsize=(12, 8))
-        sns.heatmap(pivot_table, cmap='viridis', center=0)
-        plt.title(f'Double Q-Values Heatmap - Agent {agent} (r={r})')
-        plt.xlabel('Action')
-        plt.ylabel('State')
-        plt.tight_layout()
-        plt.savefig(f'{output_dir}/double_q_heatmap_agent_{agent}_r{r}.png')
-        plt.close()
+    ax.set_xlabel('Multiplication Factor (r)')
+    ax.set_ylabel('Normalized Contribution Rate (%)')
+    ax.set_title(f'Last 1000 Episodes Contribution Rates (r={r})')
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/normalized_contributions_r{r}.png', bbox_inches='tight')
+    plt.close()
 
-def save_summary(
-    q_metrics: Dict[str, List[float]],
-    double_q_metrics: Dict[str, List[float]],
-    output_dir: str,
-    r: float
-) -> None:
-    """Save smoothed metric summary."""
-    # Apply smoothing
-    q_smoothed = smooth_metrics(q_metrics)
-    double_q_smoothed = smooth_metrics(double_q_metrics)
+def analyze_social_welfare(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
+    """Analyze social welfare and create summary statistics."""
+    # Plot social welfare over episodes with 50-episode smoothing
+    q_welfare = pd.Series(q_metrics['social_welfare']).rolling(50, min_periods=1).mean()
+    dq_welfare = pd.Series(double_q_metrics['social_welfare']).rolling(50, min_periods=1).mean()
     
-    # Metrics to analyze (excluding 'episode')
-    metrics_to_analyze = [
-        'avg_contribution', 'social_welfare', 'gini_coefficient', 
-        'action_diversity', 'agent_0_contrib', 'agent_1_contrib',
-        'agent_2_contrib', 'agent_3_contrib'
-    ]
+    fig, ax = plt.subplots()
+    ax.plot(range(len(q_welfare)), q_welfare, label='Q-Learning')
+    ax.plot(range(len(dq_welfare)), dq_welfare, label='Double Q-Learning')
+    ax.set_xlabel('Episode')
+    ax.set_ylabel('Social Welfare')
+    ax.set_title(f'Social Welfare Over Episodes (r={r})')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/social_welfare_r{r}.png')
+    plt.close()
     
-    summary_data = []
+    # Summary statistics for last 1000 episodes
+    stats = pd.DataFrame({
+        'Algorithm': ['Q-Learning', 'Double Q-Learning'],
+        'Mean Contribution (%)': [
+            np.mean(q_metrics['avg_contribution'][-1000:]) * 100,
+            np.mean(double_q_metrics['avg_contribution'][-1000:]) * 100
+        ],
+        'Std Dev (%)': [
+            np.std(q_metrics['avg_contribution'][-1000:]) * 100,
+            np.std(double_q_metrics['avg_contribution'][-1000:]) * 100
+        ]
+    })
+    stats.to_csv(f'{output_dir}/contribution_stats_r{r}.csv', index=False)
+
+def plot_individual_contributions(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
+    """Plot individual contributions with 50-episode smoothing window."""
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    colors = plt.cm.Set2(np.linspace(0, 1, 4))
+    window = 50
     
-    # Process Q-Learning metrics
-    for metric in metrics_to_analyze:
-        values = q_smoothed[metric]
-        summary_data.append({
-            'algorithm': 'Q-Learning',
-            'metric': metric,
-            'mean': np.mean(values),
-            'std': np.std(values)
-        })
+    # Q-Learning contributions
+    for i in range(4):
+        contrib = pd.Series(q_metrics[f'agent_{i}_contrib']).rolling(window, min_periods=1).mean()
+        ax1.plot(range(len(contrib)), contrib, 
+                label=f'Agent {i} (e={0.5*(i+1)})',
+                color=colors[i])
+    ax1.set_title(f'Q-Learning Individual Contributions (r={r})')
+    ax1.set_xlabel('Episode')
+    ax1.set_ylabel('Contribution')
+    ax1.legend()
     
-    # Process Double Q-Learning metrics
-    for metric in metrics_to_analyze:
-        values = double_q_smoothed[metric]
-        summary_data.append({
-            'algorithm': 'Double Q-Learning',
-            'metric': metric,
-            'mean': np.mean(values),
-            'std': np.std(values)
-        })
+    # Double Q-Learning contributions
+    for i in range(4):
+        contrib = pd.Series(double_q_metrics[f'agent_{i}_contrib']).rolling(window, min_periods=1).mean()
+        ax2.plot(range(len(contrib)), contrib, 
+                label=f'Agent {i} (e={0.5*(i+1)})',
+                color=colors[i])
+    ax2.set_title(f'Double Q-Learning Individual Contributions (r={r})')
+    ax2.set_xlabel('Episode')
+    ax2.set_ylabel('Contribution')
+    ax2.legend()
     
-    # Save summary
-    pd.DataFrame(summary_data).to_csv(
-        f'{output_dir}/summary_r{r}.csv',
-        index=False
-    )
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/individual_contributions_r{r}.png')
+    plt.close()
+
+def plot_shapley_analysis(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
+    """Plot Shapley values analysis with 50-episode smoothing."""
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    colors = plt.cm.Set2(np.linspace(0, 1, 4))
+    window = 50
+    
+    # Q-Learning Shapley values
+    for i in range(4):
+        shapley = pd.Series(q_metrics[f'agent_{i}_shapley']).rolling(window, min_periods=1).mean()
+        ax1.plot(range(len(shapley)), shapley, 
+                label=f'Agent {i} (e={0.5*(i+1)})',
+                color=colors[i])
+    ax1.set_title(f'Q-Learning Shapley Values (r={r})')
+    ax1.set_xlabel('Episode')
+    ax1.set_ylabel('Shapley Value')
+    ax1.legend()
+    
+    # Double Q-Learning Shapley values
+    for i in range(4):
+        shapley = pd.Series(double_q_metrics[f'agent_{i}_shapley']).rolling(window, min_periods=1).mean()
+        ax2.plot(range(len(shapley)), shapley, 
+                label=f'Agent {i} (e={0.5*(i+1)})',
+                color=colors[i])
+    ax2.set_title(f'Double Q-Learning Shapley Values (r={r})')
+    ax2.set_xlabel('Episode')
+    ax2.set_ylabel('Shapley Value')
+    ax2.legend()
+    
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/shapley_values_r{r}.png')
+    plt.close()

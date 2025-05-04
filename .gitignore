@@ -9,6 +9,9 @@ results/
 results_analysis/
 results_action=*/
 
+# Analysis results
+results_analysis/
+
 # Python cache
 __pycache__/
 *.py[cod]

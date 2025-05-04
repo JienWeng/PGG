@@ -10,27 +10,73 @@ from pgg_environment import PublicGoodsGame
 from q_agent import QAgent
 from double_q_agent import DoubleQAgent
 
-def gini_coefficient(contributions: List[float]) -> float:
+def calculate_shapley_value(contributions: List[float], r: float) -> List[float]:
     """
-    Calculate Gini coefficient as a measure of inequality.
+    Calculate Shapley values for each player in the public goods game.
     
     Args:
-        contributions: List of contribution values
+        contributions: List of contributions from each player
+        r: Multiplier for public goods
         
     Returns:
-        Gini coefficient (0 = perfect equality, 1 = perfect inequality)
+        List of Shapley values for each player
     """
-    # Handle case with no contributions
-    if sum(contributions) == 0:
-        return 0.0
-        
-    # Sort contributions in ascending order
-    sorted_contributions = sorted(contributions)
-    n = len(sorted_contributions)
+    n = len(contributions)
+    shapley_values = [0.0] * n
     
-    # Calculate Gini coefficient
-    cumsum = np.cumsum(sorted_contributions)
-    return (n + 1 - 2 * np.sum(cumsum) / cumsum[-1]) / n if cumsum[-1] > 0 else 0.0
+    def v(coalition: List[int]) -> float:
+        """Calculate value of a coalition"""
+        if not coalition:
+            return 0.0
+        coalition_sum = sum(contributions[i] for i in coalition)
+        return (r * coalition_sum) / len(coalition)
+    
+    # Calculate Shapley value for each player
+    for i in range(n):
+        for subset in range(2 ** (n-1)):
+            coalition = []
+            pos = 0
+            for j in range(n):
+                if j != i:
+                    if subset & (1 << pos):
+                        coalition.append(j)
+                    pos += 1
+            
+            # Calculate marginal contribution
+            s = len(coalition)
+            weight = float(s * (n-s-1)) / float(n)
+            marginal = v(coalition + [i]) - v(coalition)
+            shapley_values[i] += weight * marginal
+            
+    return shapley_values
+
+def calculate_metrics(episode_contributions: List[float], episode_rewards: List[float], r: float) -> Dict[str, float]:
+    """Calculate metrics for the current episode."""
+    n_agents = len(episode_contributions)
+    
+    # Basic metrics
+    avg_contribution = np.mean(episode_contributions)
+    total_contribution = np.sum(episode_contributions)
+    social_welfare = np.sum(episode_rewards)
+    
+    # Calculate Shapley values
+    shapley_values = calculate_shapley_value(episode_contributions, r)
+    
+    # Normalized contributions (as percentages of endowments)
+    norm_contributions = [c/(0.5*(i+1))*100 for i, c in enumerate(episode_contributions)]
+    
+    metrics = {
+        'avg_contribution': avg_contribution,
+        'total_contribution': total_contribution,
+        'social_welfare': social_welfare,
+        'fairness': 1.0 - (max(shapley_values) - min(shapley_values)) / (max(shapley_values) + 1e-10),
+        'action_diversity': len(set(norm_contributions)) / n_agents,
+        **{f'agent_{i}_contrib': contrib for i, contrib in enumerate(episode_contributions)},
+        **{f'agent_{i}_norm_contrib': norm_contrib for i, norm_contrib in enumerate(norm_contributions)},
+        **{f'agent_{i}_shapley': sv for i, sv in enumerate(shapley_values)}
+    }
+    
+    return metrics
 
 def run_simulation(
     algorithm: str,
@@ -62,17 +108,19 @@ def run_simulation(
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
     # Initialize metrics dictionaries
-    metrics = {
+    metrics_history = {
         "avg_contribution": [],
+        "total_contribution": [],
         "social_welfare": [],
-        "contribution_variance": [],
-        "gini_coefficient": [],
+        "fairness": [],
         "action_diversity": []
     }
     
-    # Add individual contributions for each agent
+    # Add individual contributions, normalized contributions, and Shapley values for each agent
     for i in range(len(agents)):
-        metrics[f"agent_{i}_contrib"] = []
+        metrics_history[f"agent_{i}_contrib"] = []
+        metrics_history[f"agent_{i}_norm_contrib"] = []
+        metrics_history[f"agent_{i}_shapley"] = []
     
     # Simulation loop
     for episode in range(num_episodes):
@@ -115,44 +163,32 @@ def run_simulation(
             # Update states
             states = next_states
         
-        # Calculate average contributions per agent (over the episode)
-        avg_episode_contributions = [c / steps_per_episode for c in episode_contributions]
-        
         # Calculate metrics
-        avg_contribution = np.mean(avg_episode_contributions)
-        social_welfare = np.sum(episode_rewards)
-        contribution_variance = np.var(avg_episode_contributions)
-        gini = gini_coefficient(avg_episode_contributions)
-        action_diversity = len(episode_actions)
+        episode_metrics = calculate_metrics(episode_contributions, episode_rewards, env.r)
         
         # Store metrics
-        metrics["avg_contribution"].append(avg_contribution)
-        metrics["social_welfare"].append(social_welfare)
-        metrics["contribution_variance"].append(contribution_variance)
-        metrics["gini_coefficient"].append(gini)
-        metrics["action_diversity"].append(action_diversity)
-        
-        # Store individual contributions
-        for i in range(len(agents)):
-            metrics[f"agent_{i}_contrib"].append(avg_episode_contributions[i])
+        for key, value in episode_metrics.items():
+            metrics_history[key].append(value)
         
         # Print progress every 100 episodes
         if episode % 100 == 0:
-            print(f"Episode {episode}/{num_episodes} - Avg Contribution: {avg_contribution:.4f}, Social Welfare: {social_welfare:.4f}")
+            print(f"Episode {episode}/{num_episodes} - Avg Contribution: {episode_metrics['avg_contribution']:.4f}, Social Welfare: {episode_metrics['social_welfare']:.4f}")
     
     # Save metrics to CSV
     metrics_df = pd.DataFrame({
         'episode': range(num_episodes),
-        'avg_contribution': metrics['avg_contribution'],
-        'social_welfare': metrics['social_welfare'],
-        'contribution_variance': metrics['contribution_variance'],
-        'gini_coefficient': metrics['gini_coefficient'],
-        'action_diversity': metrics['action_diversity']
+        'avg_contribution': metrics_history['avg_contribution'],
+        'total_contribution': metrics_history['total_contribution'],
+        'social_welfare': metrics_history['social_welfare'],
+        'fairness': metrics_history['fairness'],
+        'action_diversity': metrics_history['action_diversity']
     })
     
-    # Add individual agent contributions
+    # Add individual agent contributions, normalized contributions, and Shapley values
     for i in range(len(agents)):
-        metrics_df[f'agent_{i}_contrib'] = metrics[f'agent_{i}_contrib']
+        metrics_df[f'agent_{i}_contrib'] = metrics_history[f'agent_{i}_contrib']
+        metrics_df[f'agent_{i}_norm_contrib'] = metrics_history[f'agent_{i}_norm_contrib']
+        metrics_df[f'agent_{i}_shapley'] = metrics_history[f'agent_{i}_shapley']
     
     # Save metrics to CSV
     metrics_file = os.path.join(output_dir, f"{algorithm}_metrics.csv")
@@ -193,4 +229,4 @@ def run_simulation(
     pd.DataFrame(q_data).to_csv(q_values_file, index=False)
     print(f"Q-values saved to {q_values_file}")
     
-    return metrics
+    return metrics_history

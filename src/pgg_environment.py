@@ -2,12 +2,6 @@ import numpy as np
 from typing import List, Tuple, Optional
 
 class PublicGoodsGame:
-    """
-    A modular, complex multi-agent Public Goods Game (MARL) environment with a large action space.
-    
-    Supports heterogeneous endowments, noisy contributions, and dynamic group sizes.
-    """
-    
     def __init__(
         self, 
         num_agents: int, 
@@ -15,30 +9,27 @@ class PublicGoodsGame:
         multiplication_factor: float, 
         action_space: List[float], 
         state_bins: List[Tuple[float, float]], 
-        noise_std: float
+        noise_std: float = 0.05  # σᵣ = 0.05 for multiplication factor noise
     ) -> None:
         """
-        Initialize PGG with MARL settings.
+        Initialize PGG with noisy multiplication factor.
         
         Args:
-            num_agents: Number of agents in the game (e.g., 4)
-            endowments: Initial endowments for each agent (e.g., [0.5, 1.0, 1.5, 2.0])
-            multiplication_factor: The public goods multiplication factor (e.g., 2.0)
-            action_space: Discrete action space as fractions of endowment (e.g., [0, 0.04, ..., 1.0])
+            num_agents: Number of agents in the game
+            endowments: Initial endowments for each agent
+            multiplication_factor: Base multiplication factor r_t
+            action_space: Discrete action space as fractions of endowment
             state_bins: Discretized state bins as (endowment, contribution) tuples
-            noise_std: Standard deviation for Gaussian noise added to actions (e.g., 0.1)
+            noise_std: Standard deviation for Gaussian noise added to multiplication factor
         """
-        if len(endowments) != num_agents:
-            raise ValueError(f"Expected {num_agents} endowment values, got {len(endowments)}")
-            
         self.num_agents = num_agents
-        self.endowments = np.array(endowments, dtype=float)
-        self.multiplication_factor = multiplication_factor
-        self.action_space = np.array(action_space, dtype=float)
+        self.endowments = endowments
+        self.r = multiplication_factor  # Store as self.r for consistency
+        self.action_space = action_space
         self.state_bins = state_bins
         self.noise_std = noise_std
         
-        # Initialize states as (endowment_i, 0) for each agent
+        # Initialize states
         self.states = [(e, 0.0) for e in self.endowments]
         
     def step(
@@ -47,53 +38,41 @@ class PublicGoodsGame:
         active_agents: List[int]
     ) -> Tuple[List[Tuple[float, float]], List[float], bool]:
         """
-        Execute one step in the PGG, return next states, rewards, and done flag.
-        
-        Args:
-            actions: List of actions (contribution fractions) for each active agent
-            active_agents: Indices of agents participating in this round
-            
-        Returns:
-            next_states: List of next states for all agents
-            rewards: List of rewards for all agents
-            done: Whether the episode is finished (always False for PGG)
+        Execute one step with noisy multiplication factor.
         """
         if len(actions) != len(active_agents):
             raise ValueError(f"Expected {len(active_agents)} actions, got {len(actions)}")
             
-        # Add Gaussian noise to actions and clip to [0, 1]
-        noisy_actions = np.clip(
-            np.array(actions) + np.random.normal(0, self.noise_std, len(actions)), 
-            0, 
-            1
-        )
-        
-        # Initialize rewards for all agents (inactive agents get 0)
-        rewards = np.zeros(self.num_agents)
-        
-        # Calculate contributions: action_i * endowment_i for each active agent
+        # Calculate contributions without noise
         contributions = np.zeros(self.num_agents)
         for i, agent_idx in enumerate(active_agents):
-            contributions[agent_idx] = noisy_actions[i] * self.endowments[agent_idx]
+            contributions[agent_idx] = actions[i] * self.endowments[agent_idx]
         
-        # Calculate the public good value
+        # Calculate total contribution
         total_contribution = np.sum(contributions)
-        public_good = self.multiplication_factor * total_contribution / len(active_agents) if active_agents else 0
         
-        # Calculate rewards for active agents
+        # Apply Gaussian noise to multiplication factor: r̃ᵢ,ₜ ~ N(rₜ, σᵣ)
+        noisy_multiplication_factor = self.r + np.random.normal(0, self.noise_std)
+        
+        # Ensure multiplication factor remains positive
+        noisy_multiplication_factor = max(0, noisy_multiplication_factor)
+        
+        # Calculate public good with noisy multiplication factor
+        public_good = noisy_multiplication_factor * total_contribution / len(active_agents) if active_agents else 0
+        
+        # Initialize rewards
+        rewards = np.zeros(self.num_agents)
+        
+        # Calculate rewards using noisy multiplication factor
         for i, agent_idx in enumerate(active_agents):
-            # Reward = endowment - contribution + public good share
             rewards[agent_idx] = self.endowments[agent_idx] - contributions[agent_idx] + public_good
         
-        # Update states for all agents
+        # Update states
         next_states = self.states.copy()
         
-        # For active agents, update state with average contribution of others
+        # Update states for active agents
         for i, agent_idx in enumerate(active_agents):
-            # Calculate average contribution of others (excluding self)
             others_contribution = (total_contribution - contributions[agent_idx]) / (len(active_agents) - 1) if len(active_agents) > 1 else 0
-            
-            # Discretize state
             next_states[agent_idx] = self._discretize_state(
                 self.endowments[agent_idx], 
                 others_contribution
