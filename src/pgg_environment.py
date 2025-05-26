@@ -8,71 +8,62 @@ class PublicGoodsGame:
         endowments: List[float], 
         multiplication_factor: float, 
         action_space: List[float], 
-        state_bins: List[Tuple[float, float]], 
-        noise_std: float = 0.05  # σᵣ = 0.05 for multiplication factor noise
+        state_bins: List[Tuple[float, float]]
     ) -> None:
         """
-        Initialize PGG with noisy multiplication factor.
+        Initialize PGG.
         
         Args:
             num_agents: Number of agents in the game
             endowments: Initial endowments for each agent
-            multiplication_factor: Base multiplication factor r_t
+            multiplication_factor: Base multiplication factor r
             action_space: Discrete action space as fractions of endowment
             state_bins: Discretized state bins as (endowment, contribution) tuples
-            noise_std: Standard deviation for Gaussian noise added to multiplication factor
         """
         self.num_agents = num_agents
         self.endowments = endowments
-        self.r = multiplication_factor  # Store as self.r for consistency
+        self.r = multiplication_factor
         self.action_space = action_space
         self.state_bins = state_bins
-        self.noise_std = noise_std
         
         # Initialize states
         self.states = [(e, 0.0) for e in self.endowments]
         
     def step(
         self, 
-        actions: List[float], 
-        active_agents: List[int]
+        actions: List[float]
     ) -> Tuple[List[Tuple[float, float]], List[float], bool]:
         """
-        Execute one step with noisy multiplication factor.
+        Execute one step of the Public Goods Game.
+        Assumes all agents are active and actions are provided for all agents.
         """
-        if len(actions) != len(active_agents):
-            raise ValueError(f"Expected {len(active_agents)} actions, got {len(actions)}")
+        if len(actions) != self.num_agents:
+            raise ValueError(f"Expected {self.num_agents} actions, got {len(actions)}")
             
-        # Calculate contributions without noise
         contributions = np.zeros(self.num_agents)
-        for i, agent_idx in enumerate(active_agents):
-            contributions[agent_idx] = actions[i] * self.endowments[agent_idx]
+        for agent_idx in range(self.num_agents):
+            contributions[agent_idx] = actions[agent_idx] * self.endowments[agent_idx]
         
-        # Calculate total contribution
         total_contribution = np.sum(contributions)
         
-        # Apply Gaussian noise to multiplication factor: r̃ᵢ,ₜ ~ N(rₜ, σᵣ)
-        noisy_multiplication_factor = self.r + np.random.normal(0, self.noise_std)
+        # Calculate public good using the base multiplication factor
+        public_good = self.r * total_contribution / self.num_agents if self.num_agents > 0 else 0
         
-        # Ensure multiplication factor remains positive
-        noisy_multiplication_factor = max(0, noisy_multiplication_factor)
-        
-        # Calculate public good with noisy multiplication factor
-        public_good = noisy_multiplication_factor * total_contribution / len(active_agents) if active_agents else 0
-        
-        # Initialize rewards
         rewards = np.zeros(self.num_agents)
         
-        # Calculate rewards using noisy multiplication factor
-        for i, agent_idx in enumerate(active_agents):
+        # Calculate rewards
+        for agent_idx in range(self.num_agents):
             rewards[agent_idx] = self.endowments[agent_idx] - contributions[agent_idx] + public_good
         
-        # Update states
         next_states = self.states.copy()
         
-        # Update states for active agents
-        for i, agent_idx in enumerate(active_agents):
-            others_contribution = (total_contribution - contributions[agent_idx]) / (len(active_agents) - 1) if len(active_agents) > 1 else 0
+        # Update states for all agents
+        for agent_idx in range(self.num_agents):
+            if self.num_agents > 1:
+                others_contribution = (total_contribution - contributions[agent_idx]) / (self.num_agents - 1)
+            else:
+                others_contribution = 0.0
+            
             next_states[agent_idx] = self._discretize_state(
                 self.endowments[agent_idx], 
                 others_contribution

@@ -18,12 +18,11 @@ def main() -> None:
     num_agents = 4
     endowments = [0.5 * (i+1) for i in range(num_agents)]
     multiplication_factors = [1.5, 2.0, 2.5, 3.0, 3.5]
-    action_space = [i * 0.04 for i in range(26)]  # 25 levels
+    action_space = [i * 0.04 for i in range(26)]  # 25 levels -> 0.0 to 1.0
     state_bins = [(e, c) for e in [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5] 
                  for c in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]]
     
     # Agent parameters
-    noise_std = 0.05
     learning_rate = 0.05
     discount_factor = 0.95
     epsilon = 1.0
@@ -31,8 +30,7 @@ def main() -> None:
     epsilon_min = 0.05
     
     # Simulation parameters
-    num_episodes = 10000
-    steps_per_episode = 200
+    num_episodes = 2000000
     seeds = [42, 123, 456] 
     output_dir = "results/"
     
@@ -52,8 +50,7 @@ def main() -> None:
                 endowments=endowments,
                 multiplication_factor=r,
                 action_space=action_space,
-                state_bins=state_bins,
-                noise_std=noise_std
+                state_bins=state_bins
             )
             
             # Run experiments for each seed
@@ -80,7 +77,6 @@ def main() -> None:
                 run_simulation(
                     algorithm=f"q_r{r}_seed{seed}",
                     num_episodes=num_episodes,
-                    steps_per_episode=steps_per_episode,
                     env=env,
                     agents=q_agents,
                     output_dir=seed_output_dir
@@ -101,7 +97,6 @@ def main() -> None:
                 run_simulation(
                     algorithm=f"double_q_r{r}_seed{seed}",
                     num_episodes=num_episodes,
-                    steps_per_episode=steps_per_episode,
                     env=env,
                     agents=double_q_agents,
                     output_dir=seed_output_dir
