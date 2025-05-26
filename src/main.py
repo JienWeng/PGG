@@ -30,7 +30,7 @@ def main() -> None:
     epsilon_min = 0.05
     
     # Simulation parameters
-    num_episodes = 2000000
+    num_episodes = 1000000
     seeds = [42, 123, 456] 
     output_dir = "results/"
     

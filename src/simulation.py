@@ -200,13 +200,51 @@ def run_simulation(
     metrics_df.to_csv(metrics_file, index=False)
     print(f"Metrics saved to {metrics_file}")
     
-    # Save Q-values for each agent
+    # Save Q-values for each agent (final Q-tables)
     for i, agent in enumerate(agents):
-        q_table_file = os.path.join(output_dir, f"{algorithm}_agent_{i}_q_table.csv")
-        # Convert Q-table keys (tuples) to strings for CSV compatibility
-        q_table_to_save = {str(k): v for k, v in agent.get_q_values().items()}
-        q_df = pd.DataFrame(list(q_table_to_save.items()), columns=['state_action', 'q_value'])
-        q_df.to_csv(q_table_file, index=False)
-        print(f"Q-table for agent {i} saved to {q_table_file}")
+        q_table_file = os.path.join(output_dir, f"{algorithm}_agent_{i}_final_q_table.csv")
+        q_values_to_save = {} # Default to an empty dict
+
+        if isinstance(agent, QAgent):
+            # Assuming QAgent has a method get_q_values() that returns its Q-table as a dict
+            q_values_to_save = agent.get_q_values()
+        elif isinstance(agent, DoubleQAgent):
+            # Attempt to get q_table_A. If it's a tuple, try to convert to dict.
+            potential_q_table_A = agent.q_table_A # Accessing the attribute as per previous logic
+            
+            if isinstance(potential_q_table_A, dict):
+                q_values_to_save = potential_q_table_A
+            elif isinstance(potential_q_table_A, tuple):
+                try:
+                    # If agent.q_table_A is a tuple of (key, value) pairs, convert to dict
+                    q_values_to_save = dict(potential_q_table_A)
+                    print(f"Info: Converted q_table_A (tuple) to dict for DoubleQAgent {i}.")
+                except (TypeError, ValueError) as e:
+                    print(f"Warning: DoubleQAgent {i}'s q_table_A is a tuple but could not be converted to a dict: {e}. Q-table for Q_A will be empty.")
+                    q_values_to_save = {} # Fallback to empty dict
+            else:
+                print(f"Warning: DoubleQAgent {i}'s q_table_A is of unexpected type {type(potential_q_table_A)}. Q-table for Q_A will be empty.")
+                q_values_to_save = {} # Fallback to empty dict
         
-    return metrics_history
+        if not q_values_to_save: # Check if q_values_to_save is empty after attempts
+            print(f"Notice: Q-table for agent {i} ({agent.__class__.__name__}) is empty or was not retrievable as a dict. Skipping save for this Q-table.")
+            continue # Skip to the next agent if no Q-table data
+
+        try:
+            # Convert Q-table keys (tuples like (state_tuple, action_float)) to strings for CSV compatibility
+            q_table_to_save_str_keys = {str(k): v for k, v in q_values_to_save.items()}
+            if not q_table_to_save_str_keys: # If conversion results in empty dict (e.g. q_values_to_save was empty)
+                 print(f"Notice: Q-table for agent {i} ({agent.__class__.__name__}) resulted in an empty string-keyed dictionary. Skipping save.")
+                 continue
+
+            q_df = pd.DataFrame(list(q_table_to_save_str_keys.items()), columns=['state_action', 'q_value'])
+            q_df.to_csv(q_table_file, index=False)
+            print(f"Final Q-table for agent {i} saved to {q_table_file}")
+        except AttributeError:
+             # This might happen if q_values_to_save was not successfully made a dict and was e.g. None or still a non-dict tuple
+             print(f"Error: Could not process Q-table for agent {i} due to AttributeError (likely not a dict). Q-table data: {q_values_to_save}")
+        except Exception as e:
+            print(f"Error saving Q-table for agent {i}: {e}")
+
+
+    # Save detailed decision log if enabled
