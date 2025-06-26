@@ -18,8 +18,8 @@ def main() -> None:
     num_agents = 4
     endowments = [0.5 * (i+1) for i in range(num_agents)] 
     multiplication_factors = [3.5] 
-    action_space = [0, 0.5, 1]
-    # action_space = [round(i * 0.04, 2) for i in range(26)]  # 0.0 to 1.0 in steps of 0.04
+    # action_space = [0, 0.5, 1.0] # control set for exp 3
+    action_space = [round(i * 0.04, 2) for i in range(26)]  # 0.0 to 1.0 in steps of 0.04
     
     # The 'state_bins' for the environment will be the unique endowment values, represented as tuples.
     unique_endowment_values = sorted(list(set(endowments)))

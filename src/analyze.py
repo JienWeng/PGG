@@ -103,41 +103,6 @@ def plot_required_metrics(q_metrics: pd.DataFrame, double_q_metrics: pd.DataFram
     # rolling_op = lambda series: series.rolling(window=50, min_periods=1).mean()
     # Or, for a smaller effective smoothing on the 50 points:
     rolling_op = lambda series: series.rolling(window=smoothing_window, min_periods=1).mean()
-
-
-    # 1. Normalized contribution rates
-    plt.figure(figsize=(10, 6))
-    for i in range(4):
-        endowment = 0.5 * (i + 1)
-        if f'agent_{i}_contrib' in q_metrics.columns:
-            # Ensure data is present for the agent before processing
-            if not q_metrics[f'agent_{i}_contrib'].dropna().empty:
-                q_norm_series = pd.Series([(c / endowment * 100) if endowment != 0 else 0 for c in q_metrics[f'agent_{i}_contrib']])
-                # Take last N points from the *original* episode scale if needed, here we plot all aggregated points
-                # For scatter, we usually don't smooth. The [-1000:] was for raw data, not aggregated.
-                # The q_metrics here is already aggregated (mean over seeds).
-                # The number of points in q_norm_series will be len(actual_episodes).
-                # The original code took last 1000 raw data points. Here we have few points.
-                # Let's plot all available aggregated points for the scatter.
-                ax = plt.gca()
-                ax.scatter([r] * len(q_norm_series), q_norm_series, alpha=0.3, label=f'Q-Learn e={endowment}')
-        
-        if f'agent_{i}_contrib' in double_q_metrics.columns:
-            if not double_q_metrics[f'agent_{i}_contrib'].dropna().empty:
-                dq_norm_series = pd.Series([(c / endowment * 100) if endowment != 0 else 0 for c in double_q_metrics[f'agent_{i}_contrib']])
-                ax = plt.gca()
-                ax.scatter([r+0.02] * len(dq_norm_series), dq_norm_series, alpha=0.3, marker='x', label=f'Double-Q e={endowment}')
-    
-    plt.xlabel('Multiplication Factor (r)')
-    plt.ylabel('Normalized Contribution Rate (%)')
-    plt.title(f'Aggregated Normalized Contribution Rates (r={r})') # Updated title
-    handles, labels = plt.gca().get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    if by_label:
-        plt.legend(by_label.values(), by_label.keys(), bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f'normalized_contributions_r{r}.png'))
-    plt.close()
     
     # 2. Social welfare over episodes
     plt.figure(figsize=(10, 6))
@@ -200,37 +165,7 @@ def plot_required_metrics(q_metrics: pd.DataFrame, double_q_metrics: pd.DataFram
     plt.savefig(os.path.join(output_dir, f'shapley_variance_r{r}.png')) # Changed filename
     plt.close()
 
-    # 5. Normalized Shapley values
-    fig_norm_shapley, (ax1_norm_shapley, ax2_norm_shapley) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
-    for i in range(4):
-        if f'agent_{i}_shapley' in q_metrics.columns and f'agent_{i}_contrib' in q_metrics.columns:
-            agent_shapley_series_q = pd.Series(q_metrics[f'agent_{i}_shapley'])
-            agent_contrib_series_q = pd.Series(q_metrics[f'agent_{i}_contrib'])
-            normalized_shapley_q = (agent_shapley_series_q / (agent_contrib_series_q + 1e-9))
-            normalized_shapley_q = normalized_shapley_q.replace([np.inf, -np.inf], np.nan).fillna(0)
-            ax1_norm_shapley.plot(actual_episodes, rolling_op(normalized_shapley_q), 
-                    label=f'Agent {i} (e={0.5*(i+1)})', color=colors[i])
-
-        if f'agent_{i}_shapley' in double_q_metrics.columns and f'agent_{i}_contrib' in double_q_metrics.columns:
-            agent_shapley_series_dq = pd.Series(double_q_metrics[f'agent_{i}_shapley'])
-            agent_contrib_series_dq = pd.Series(double_q_metrics[f'agent_{i}_contrib'])
-            normalized_shapley_dq = (agent_shapley_series_dq / (agent_contrib_series_dq + 1e-9))
-            normalized_shapley_dq = normalized_shapley_dq.replace([np.inf, -np.inf], np.nan).fillna(0)
-            ax2_norm_shapley.plot(actual_episodes, rolling_op(normalized_shapley_dq), 
-                    label=f'Agent {i} (e={0.5*(i+1)})', color=colors[i])
-
-    ax1_norm_shapley.set_title(f'Q-Learning Normalized Shapley Values (Shapley/Contribution) (r={r})')
-    ax1_norm_shapley.set_ylabel('Normalized Shapley Value')
-    ax1_norm_shapley.legend()
-    ax2_norm_shapley.set_title(f'Double Q-Learning Normalized Shapley Values (Shapley/Contribution) (r={r})')
-    ax2_norm_shapley.set_xlabel('Episode')
-    ax2_norm_shapley.set_ylabel('Normalized Shapley Value')
-    ax2_norm_shapley.legend()
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f'normalized_shapley_values_r{r}.png'))
-    plt.close(fig_norm_shapley)
-
-    # 6. Individual Payoffs (NEW PLOT)
+    # 6. Individual Payoffs
     fig_payoffs, (ax1_payoffs, ax2_payoffs) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
     colors = plt.cm.Set2(np.linspace(0, 1, 4)) # Same colors as other plots
     for i in range(4): # Assuming 4 agents
