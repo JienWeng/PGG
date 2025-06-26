@@ -2,7 +2,7 @@
 # *.csv
 
 # Generated plots
-*.png
+# *.png
 
 # Results directories
 # results/
