@@ -131,7 +131,6 @@ def update(self, state: Tuple[float], action: float, reward: float,
 ```
 
 **Q-Learning Formula Components:**
-- **Temporal Difference Error**: `(reward + γ*max(Q(s',a')) - Q(s,a))` measures prediction error
 - **Learning Rate (α)**: Controls how quickly new information updates existing knowledge
 - **Discount Factor (γ)**: Balances immediate vs future rewards
 - **Epsilon Decay**: Gradually shifts from exploration to exploitation
