@@ -1,0 +1,45 @@
+Statistical Test Report for Experiment 3 (r = 2.0)
+Using last 50 recorded metric points for averaging Shapley variance per seed.
+Comparing data from 'results/' (26-level AS) and 'results_control/' (3-level AS).
+
+--- Primary Hypothesis 1: Algorithm comparison in 26-level Action Space (r=2.0) ---
+Comparing: Q-Learning (26-level AS) vs. Double Q-Learning (26-level AS)
+Number of paired samples (seeds) used in test: 10
+Mean Shapley Variance for Q-Learning (26-level AS): 0.089010
+Mean Shapley Variance for Double Q-Learning (26-level AS): 0.169443
+Paired t-statistic: -2.3445
+P-value (two-tailed): 0.0437
+Result: Significant difference detected.
+Direction: Double Q-Learning (26-level AS) has a significantly HIGHER mean Shapley variance than Q-Learning (26-level AS).
+--------------------------------------
+
+--- Primary Hypothesis 2: Algorithm comparison in 3-level Action Space (r=2.0) ---
+Comparing: Q-Learning (3-level AS) vs. Double Q-Learning (3-level AS)
+Number of paired samples (seeds) used in test: 10
+Mean Shapley Variance for Q-Learning (3-level AS): 0.062165
+Mean Shapley Variance for Double Q-Learning (3-level AS): 0.038155
+Paired t-statistic: 1.7105
+P-value (two-tailed): 0.1213
+Result: No significant difference detected.
+--------------------------------------
+
+--- Secondary Hypothesis 1: Action space impact for Q-Learning (r=2.0) ---
+Comparing: Q-Learning (3-level AS) vs. Q-Learning (26-level AS)
+Number of paired samples (seeds) used in test: 10
+Mean Shapley Variance for Q-Learning (3-level AS): 0.062165
+Mean Shapley Variance for Q-Learning (26-level AS): 0.089010
+Paired t-statistic: -1.8161
+P-value (two-tailed): 0.1027
+Result: No significant difference detected.
+--------------------------------------
+
+--- Secondary Hypothesis 2: Action space impact for Double Q-Learning (r=2.0) ---
+Comparing: Double Q-Learning (3-level AS) vs. Double Q-Learning (26-level AS)
+Number of paired samples (seeds) used in test: 10
+Mean Shapley Variance for Double Q-Learning (3-level AS): 0.038155
+Mean Shapley Variance for Double Q-Learning (26-level AS): 0.169443
+Paired t-statistic: -4.1498
+P-value (two-tailed): 0.0025
+Result: Significant difference detected.
+Direction: Double Q-Learning (26-level AS) has a significantly HIGHER mean Shapley variance than Double Q-Learning (3-level AS).
+--------------------------------------

@@ -1,17 +1,16 @@
+import random
 import numpy as np
 from typing import Dict, List, Tuple, Optional, Union
 
 class QAgent:
     """
-    Q-Learning agent for multi-agent reinforcement learning (MARL) settings.
-    
-    Implements epsilon-greedy exploration and standard Q-Learning update rule.
-    Suitable for Public Goods Game with large action spaces.
+    Q-Learning agent. State is now just its own endowment (as a tuple).
     """
     
     def __init__(
         self,
-        state_space: List[Tuple[float, float]],
+        agent_endowment: float, 
+        state_space: List[Tuple[float]], # Changed: e.g., [(0.5,), (1.0,)]
         action_space: List[float],
         learning_rate: float,
         discount_factor: float,
@@ -19,19 +18,10 @@ class QAgent:
         epsilon_decay: float,
         epsilon_min: float
     ) -> None:
-        """
-        Initialize Q-Learning agent.
-        
-        Args:
-            state_space: List of possible states as (endowment, contribution) tuples
-            action_space: List of possible actions (contribution fractions)
-            learning_rate: Alpha parameter for Q-learning update (e.g., 0.1)
-            discount_factor: Gamma parameter for future reward discounting (e.g., 0.9)
-            epsilon: Initial exploration probability (e.g., 1.0)
-            epsilon_decay: Decay rate for epsilon after each update (e.g., 0.995)
-            epsilon_min: Minimum value for epsilon (e.g., 0.01)
-        """
-        self.state_space = state_space
+        self.agent_endowment_value = agent_endowment # The float value of the endowment
+        # The state for this agent will always be (self.agent_endowment_value,)
+        self.my_state: Tuple[float] = (round(agent_endowment, 2),) 
+
         self.action_space = action_space
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
@@ -39,77 +29,72 @@ class QAgent:
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
         
-        # Initialize Q-table with zeros
-        self.q_table: Dict[Tuple[Tuple[float, float], float], float] = {}
-        for state in self.state_space:
+        # Q-table: keys are (state_tuple, action_float)
+        # State_tuple is like (0.5,)
+        self.q_table: Dict[Tuple[Tuple[float], float], float] = {}
+        
+        # Initialize Q-table only for the agent's own fixed state
+        # All other states in the global state_space are irrelevant to this agent
+        if self.my_state in state_space: # Ensure the agent's state is valid
             for action in self.action_space:
-                self.q_table[(state, action)] = 0.0
-    
-    def choose_action(self, state: Tuple[float, float]) -> float:
-        """
-        Choose action via epsilon-greedy policy.
-        
-        Args:
-            state: Current state as (endowment, contribution) tuple
-            
-        Returns:
-            Selected action from action_space
-        """
-        # Exploration: random action
-        if np.random.random() < self.epsilon:
-            return np.random.choice(self.action_space)
-        
-        # Exploitation: best action based on Q-values
+                self.q_table[(self.my_state, action)] = 0.0
         else:
-            # Get all Q-values for current state
-            q_values = {action: self.q_table.get((state, action), 0.0) 
-                        for action in self.action_space}
-            
-            # Find action with highest Q-value (breaking ties randomly)
-            max_q_value = max(q_values.values())
-            best_actions = [action for action, q_value in q_values.items() 
-                           if q_value == max_q_value]
-            
-            return np.random.choice(best_actions)
-    
+            # This should not happen if main.py and pgg_environment.py are set up correctly
+            print(f"Warning: Agent's state {self.my_state} not in provided state_space {state_space} for agent with endowment {self.agent_endowment_value}")
+            # Fallback: initialize for the raw endowment tuple anyway
+            for action in self.action_space:
+                 self.q_table[(self.my_state, action)] = 0.0
+
+    def choose_action(self, state: Tuple[float]) -> float: # State type changed
+        """Choose action using epsilon-greedy policy."""
+        # The state passed should always be self.my_state for this agent
+        if state != self.my_state:
+            # This might indicate a mismatch or an unexpected state being passed.
+            # For this simplified model, we assume the agent only acts based on its fixed state.
+            # print(f"Warning: Agent received state {state} but expected {self.my_state}. Using self.my_state.")
+            current_state_key = self.my_state
+        else:
+            current_state_key = state
+
+        if random.uniform(0, 1) < self.epsilon:
+            return random.choice(self.action_space)  # Explore
+        else:
+            # Exploit: choose the action with the highest Q-value for the current state
+            q_values_for_state = {action: self.q_table.get((current_state_key, action), -np.inf) 
+                                  for action in self.action_space}
+            if not q_values_for_state: # Should not happen if q_table initialized
+                 return random.choice(self.action_space)
+            return max(q_values_for_state, key=q_values_for_state.get)
+
     def update(
         self,
-        state: Tuple[float, float],
+        state: Tuple[float], # State type changed
         action: float,
         reward: float,
-        next_state: Tuple[float, float]
+        next_state: Tuple[float] # State type changed
     ) -> None:
-        """
-        Update Q-table with Q-Learning rule.
+        """Update Q-value using the Q-Learning rule."""
+        # For this agent, state and next_state should always be self.my_state
+        # We use self.my_state as the key for Q-table entries.
         
-        Args:
-            state: Current state as (endowment, contribution) tuple
-            action: Action taken (contribution fraction)
-            reward: Reward received
-            next_state: Next state as (endowment, contribution) tuple
-        """
-        # Calculate max Q-value for next state
-        next_max_q_value = max(
-            [self.q_table.get((next_state, next_action), 0.0) 
-             for next_action in self.action_space]
-        )
+        current_q_value = self.q_table.get((self.my_state, action), 0.0)
         
-        # Current Q-value
-        current_q = self.q_table.get((state, action), 0.0)
-        
-        # Q-Learning update rule
-        self.q_table[(state, action)] = current_q + self.learning_rate * (
-            reward + self.discount_factor * next_max_q_value - current_q
-        )
+        # Find max Q-value for the next state (which is also self.my_state)
+        max_next_q_value = -np.inf
+        if (self.my_state, self.action_space[0]) in self.q_table: # Check if q_table has entries for this state
+            max_next_q_value = max(self.q_table.get((self.my_state, next_action), -np.inf) 
+                                   for next_action in self.action_space)
+        else: # Should not happen if initialized correctly
+            max_next_q_value = 0.0
+
+
+        new_q_value = current_q_value + self.learning_rate * \
+                      (reward + self.discount_factor * max_next_q_value - current_q_value)
+        self.q_table[(self.my_state, action)] = new_q_value
         
         # Decay epsilon
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-    
-    def get_q_values(self) -> Dict[Tuple[Tuple[float, float], float], float]:
-        """
-        Return current Q-table.
-        
-        Returns:
-            Dictionary mapping (state, action) pairs to Q-values
-        """
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+            
+    def get_q_values(self) -> Dict[Tuple[Tuple[float], float], float]: # Q-table key type changed
         return self.q_table

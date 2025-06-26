@@ -1,0 +1,111 @@
+Statistical Test Report for Experiments 1 & 2
+Data sourced from: results/
+Using last 50 recorded metric points for averaging per seed.
+
+
+======================================
+   RESULTS FOR r = 2.0
+======================================
+
+
+=== Experiment 1: Q-Learning vs. Double Q-Learning ===
+
+--- Exp 1.1: Average Contribution Rate ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 0.081900
+Mean for Double Q-Learning: 0.137830
+Paired t-statistic: -4.3402
+P-value (two-tailed): 0.0019
+Result: Significant difference detected.
+Direction: Double Q-Learning has a significantly HIGHER mean than Q-Learning.
+--------------------------------------
+
+--- Exp 1.2: Total Social Welfare ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 5.327600
+Mean for Double Q-Learning: 5.551320
+Paired t-statistic: -4.3402
+P-value (two-tailed): 0.0019
+Result: Significant difference detected.
+Direction: Double Q-Learning has a significantly HIGHER mean than Q-Learning.
+--------------------------------------
+
+--- Exp 1.3: Standard Deviation of Contributions ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 9.472398
+Mean for Double Q-Learning: 14.551694
+Paired t-statistic: -7.0711
+P-value (two-tailed): 0.0001
+Result: Significant difference detected.
+Direction: Double Q-Learning has a significantly HIGHER mean than Q-Learning.
+--------------------------------------
+
+
+=== Experiment 2: Q-Learning vs. Double Q-Learning ===
+Note: 'Mean Individual Contribution' is interpreted as 'Average Contribution Rate'.
+
+--- Exp 2.1: Mean Individual Contribution (Avg. Contribution Rate) ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 0.081900
+Mean for Double Q-Learning: 0.137830
+Paired t-statistic: -4.3402
+P-value (two-tailed): 0.0019
+Result: Significant difference detected.
+Direction: Double Q-Learning has a significantly HIGHER mean than Q-Learning.
+--------------------------------------
+
+
+======================================
+   RESULTS FOR r = 3.5
+======================================
+
+
+=== Experiment 1: Q-Learning vs. Double Q-Learning ===
+
+--- Exp 1.1: Average Contribution Rate ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 1.063070
+Mean for Double Q-Learning: 0.970170
+Paired t-statistic: 1.6180
+P-value (two-tailed): 0.1401
+Result: No significant difference detected.
+--------------------------------------
+
+--- Exp 1.2: Total Social Welfare ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 15.630700
+Mean for Double Q-Learning: 14.701700
+Paired t-statistic: 1.6180
+P-value (two-tailed): 0.1401
+Result: No significant difference detected.
+--------------------------------------
+
+--- Exp 1.3: Standard Deviation of Contributions ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 45.952752
+Mean for Double Q-Learning: 44.619389
+Paired t-statistic: 0.8494
+P-value (two-tailed): 0.4177
+Result: No significant difference detected.
+--------------------------------------
+
+
+=== Experiment 2: Q-Learning vs. Double Q-Learning ===
+Note: 'Mean Individual Contribution' is interpreted as 'Average Contribution Rate'.
+
+--- Exp 2.1: Mean Individual Contribution (Avg. Contribution Rate) ---
+Comparing: Q-Learning vs. Double Q-Learning
+Number of paired samples (seeds) used in test: 10
+Mean for Q-Learning: 1.063070
+Mean for Double Q-Learning: 0.970170
+Paired t-statistic: 1.6180
+P-value (two-tailed): 0.1401
+Result: No significant difference detected.
+--------------------------------------

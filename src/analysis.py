@@ -46,8 +46,7 @@ def plot_metrics(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: fl
     analysis_dir = os.path.join(output_dir, f'analysis_r{r}')
     Path(analysis_dir).mkdir(parents=True, exist_ok=True)
 
-    # Objective 1: Normalized contribution rates and social welfare
-    plot_normalized_contributions(q_metrics, double_q_metrics, output_dir, r)
+    # Objective 1: contribution rates and social welfare
     analyze_social_welfare(q_metrics, double_q_metrics, output_dir, r)
     
     # Objective 2: Individual contributions
@@ -55,33 +54,6 @@ def plot_metrics(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: fl
     
     # Objective 3: Shapley value analysis
     plot_shapley_analysis(q_metrics, double_q_metrics, output_dir, r)
-
-def plot_normalized_contributions(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
-    """Plot normalized contribution rates against r_t for each endowment."""
-    fig, ax = plt.subplots()
-    markers = ['o', 's', '^', 'D']
-    colors = plt.cm.Set2(np.linspace(0, 1, 4))
-    
-    for i, e in enumerate([0.5 * (i+1) for i in range(4)]):
-        # Q-Learning
-        norm_contrib = [c/e * 100 for c in q_metrics[f'agent_{i}_contrib']]
-        ax.scatter(r * np.ones_like(norm_contrib[-1000:]), norm_contrib[-1000:],
-                  marker=markers[i], c=[colors[i]], alpha=0.3,
-                  label=f'Q-Learn e={e}')
-        
-        # Double Q-Learning
-        norm_contrib = [c/e * 100 for c in double_q_metrics[f'agent_{i}_contrib']]
-        ax.scatter(r + 0.1 + np.zeros_like(norm_contrib[-1000:]), norm_contrib[-1000:],
-                  marker=markers[i], c=[colors[i]], alpha=0.3,
-                  label=f'Double-Q e={e}')
-    
-    ax.set_xlabel('Multiplication Factor (r)')
-    ax.set_ylabel('Normalized Contribution Rate (%)')
-    ax.set_title(f'Last 1000 Episodes Contribution Rates (r={r})')
-    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/normalized_contributions_r{r}.png', bbox_inches='tight')
-    plt.close()
 
 def analyze_social_welfare(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
     """Analyze social welfare and create summary statistics."""
@@ -147,33 +119,77 @@ def plot_individual_contributions(q_metrics: Dict, double_q_metrics: Dict, outpu
     plt.close()
 
 def plot_shapley_analysis(q_metrics: Dict, double_q_metrics: Dict, output_dir: str, r: float):
-    """Plot Shapley values analysis with 50-episode smoothing."""
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    """Plot Shapley values analysis and normalized Shapley values with 50-episode smoothing."""
+    fig_shapley, (ax1_shapley, ax2_shapley) = plt.subplots(2, 1, figsize=(10, 12))
     colors = plt.cm.Set2(np.linspace(0, 1, 4))
     window = 50
     
     # Q-Learning Shapley values
     for i in range(4):
         shapley = pd.Series(q_metrics[f'agent_{i}_shapley']).rolling(window, min_periods=1).mean()
-        ax1.plot(range(len(shapley)), shapley, 
+        ax1_shapley.plot(range(len(shapley)), shapley, 
                 label=f'Agent {i} (e={0.5*(i+1)})',
                 color=colors[i])
-    ax1.set_title(f'Q-Learning Shapley Values (r={r})')
-    ax1.set_xlabel('Episode')
-    ax1.set_ylabel('Shapley Value')
-    ax1.legend()
+    ax1_shapley.set_title(f'Q-Learning Shapley Values (r={r})')
+    ax1_shapley.set_xlabel('Episode')
+    ax1_shapley.set_ylabel('Shapley Value')
+    ax1_shapley.legend()
     
     # Double Q-Learning Shapley values
     for i in range(4):
         shapley = pd.Series(double_q_metrics[f'agent_{i}_shapley']).rolling(window, min_periods=1).mean()
-        ax2.plot(range(len(shapley)), shapley, 
+        ax2_shapley.plot(range(len(shapley)), shapley, 
                 label=f'Agent {i} (e={0.5*(i+1)})',
                 color=colors[i])
-    ax2.set_title(f'Double Q-Learning Shapley Values (r={r})')
-    ax2.set_xlabel('Episode')
-    ax2.set_ylabel('Shapley Value')
-    ax2.legend()
+    ax2_shapley.set_title(f'Double Q-Learning Shapley Values (r={r})')
+    ax2_shapley.set_xlabel('Episode')
+    ax2_shapley.set_ylabel('Shapley Value')
+    ax2_shapley.legend()
     
     plt.tight_layout()
     plt.savefig(f'{output_dir}/shapley_values_r{r}.png')
-    plt.close()
+    plt.close(fig_shapley)
+
+    # --- New: Normalized Shapley Values Plot ---
+    fig_norm_shapley, (ax1_norm_shapley, ax2_norm_shapley) = plt.subplots(2, 1, figsize=(10, 12))
+
+    # Q-Learning Normalized Shapley values
+    for i in range(4):
+        agent_shapley_series = pd.Series(q_metrics[f'agent_{i}_shapley'])
+        agent_contrib_series = pd.Series(q_metrics[f'agent_{i}_contrib'])
+        
+        # Calculate normalized Shapley value, handle division by zero
+        # Add a small epsilon to the denominator to prevent division by zero,
+        # then replace inf/-inf with NaN, and fill NaN with 0.
+        normalized_shapley = (agent_shapley_series / (agent_contrib_series + 1e-9))
+        normalized_shapley = normalized_shapley.replace([np.inf, -np.inf], np.nan).fillna(0)
+        
+        smoothed_norm_shapley = normalized_shapley.rolling(window, min_periods=1).mean()
+        ax1_norm_shapley.plot(range(len(smoothed_norm_shapley)), smoothed_norm_shapley, 
+                label=f'Agent {i} (e={0.5*(i+1)})',
+                color=colors[i])
+    ax1_norm_shapley.set_title(f'Q-Learning Normalized Shapley Values (Shapley/Contribution) (r={r})')
+    ax1_norm_shapley.set_xlabel('Episode')
+    ax1_norm_shapley.set_ylabel('Normalized Shapley Value')
+    ax1_norm_shapley.legend()
+
+    # Double Q-Learning Normalized Shapley values
+    for i in range(4):
+        agent_shapley_series = pd.Series(double_q_metrics[f'agent_{i}_shapley'])
+        agent_contrib_series = pd.Series(double_q_metrics[f'agent_{i}_contrib'])
+
+        normalized_shapley = (agent_shapley_series / (agent_contrib_series + 1e-9))
+        normalized_shapley = normalized_shapley.replace([np.inf, -np.inf], np.nan).fillna(0)
+        
+        smoothed_norm_shapley = normalized_shapley.rolling(window, min_periods=1).mean()
+        ax2_norm_shapley.plot(range(len(smoothed_norm_shapley)), smoothed_norm_shapley, 
+                label=f'Agent {i} (e={0.5*(i+1)})',
+                color=colors[i])
+    ax2_norm_shapley.set_title(f'Double Q-Learning Normalized Shapley Values (Shapley/Contribution) (r={r})')
+    ax2_norm_shapley.set_xlabel('Episode')
+    ax2_norm_shapley.set_ylabel('Normalized Shapley Value')
+    ax2_norm_shapley.legend()
+
+    plt.tight_layout()
+    plt.savefig(f'{output_dir}/normalized_shapley_values_r{r}.png')
+    plt.close(fig_norm_shapley)

@@ -1,5 +1,5 @@
 import os
-import numpy as np
+import numpy as np # Ensure numpy is imported
 import pandas as pd
 from typing import Dict, List, Tuple, Union, Any
 import random
@@ -71,64 +71,101 @@ def calculate_shapley_value(contributions: List[float], r: float) -> List[float]
             
     return shapley_values
 
-def calculate_metrics(episode_contributions: List[float], episode_rewards: List[float], r: float, endowments: List[float]) -> Dict[str, float]:
-    """Calculate metrics for the current episode."""
+def calculate_metrics(episode_contributions: List[float], episode_rewards_from_env: List[float], r: float, endowments: List[float]) -> Dict[str, float]:
+    """
+    Calculate metrics for the current episode.
+    Payoffs for logging are calculated here based on the PGG formula.
+    """
     n_agents = len(episode_contributions)
     if n_agents == 0: 
-        return {
+        # Return default values if there are no agents or contributions
+        metrics = {
             'avg_contribution': 0.0,
             'total_contribution': 0.0,
-            'social_welfare': 0.0,
+            'social_welfare': 0.0, # Based on calculated payoffs
             'fairness': 1.0, 
             'action_diversity': 0.0
         }
+        # Add default agent-specific metrics if necessary, though n_agents=0 implies no agents
+        for i in range(len(endowments)): # Assuming endowments list might exist even if contributions don't
+            metrics[f'agent_{i}_contrib'] = 0.0
+            metrics[f'agent_{i}_norm_contrib'] = 0.0
+            metrics[f'agent_{i}_shapley'] = 0.0
+            metrics[f'agent_{i}_payoff'] = 0.0 # Default payoff
+        return metrics
 
-    # Basic metrics
+    # Basic metrics from contributions
     avg_contribution = np.mean(episode_contributions) if episode_contributions else 0.0
     total_contribution = np.sum(episode_contributions)
-    social_welfare = np.sum(episode_rewards) # episode_rewards are now per-episode, not per-step sums
     
-    # Calculate Shapley values
-    shapley_values = calculate_shapley_value(episode_contributions, r)
+    # Calculate PGG payoffs explicitly for each agent for logging
+    calculated_agent_payoffs = [0.0] * n_agents
+    public_good_total = r * total_contribution
+    public_good_share_per_agent = public_good_total / n_agents if n_agents > 0 else 0.0
+    
+    for i in range(n_agents):
+        # Payoff = (Endowment - Contribution) + Share of Public Good
+        calculated_agent_payoffs[i] = (endowments[i] - episode_contributions[i]) + public_good_share_per_agent
+        
+    # Social welfare is the sum of these calculated individual payoffs
+    social_welfare = np.sum(calculated_agent_payoffs)
+    
+    # Calculate Shapley values based on actual contributions
+    shapley_values = calculate_shapley_value(episode_contributions, r) # Assumes this function is defined elsewhere
     
     norm_contributions = []
-    if len(endowments) == n_agents:
+    if len(endowments) == n_agents: # Ensure endowments list matches number of contributions
         norm_contributions = [(c / endowments[i] * 100) if endowments[i] > 0 else 0 for i, c in enumerate(episode_contributions)]
-    else: 
-        norm_contributions = [0.0] * n_agents
+    else: # Fallback if endowments list doesn't match, though this indicates an issue
+        print(f"Warning: Mismatch between number of contributions ({n_agents}) and endowments ({len(endowments)}) in calculate_metrics.")
+        norm_contributions = [0.0] * n_agents # Or handle error appropriately
 
     max_sv = max(shapley_values) if shapley_values else 0.0
     min_sv = min(shapley_values) if shapley_values else 0.0
     
-    # Adjusted fairness calculation for clarity and robustness
-    if not shapley_values: # Handle empty Shapley values
-        fairness_metric = 1.0 # Or 0.0, depending on desired behavior for no agents/no SVs
-    elif max_sv == min_sv: # All Shapley values are equal (perfect fairness)
+    if not shapley_values:
+        fairness_metric = 1.0 
+    elif max_sv == min_sv:
         fairness_metric = 1.0
-    elif max_sv == 0 and min_sv == 0: # All SVs are zero
-        fairness_metric = 1.0
-    elif abs(max_sv) < 1e-9: # Max SV is effectively zero, avoid division by zero if min_sv is also small
-        fairness_metric = 0.0 # Or handle as undefined/error if min_sv is significantly different
+    elif abs(max_sv) < 1e-9: # Avoid division by zero if max_sv is very small
+        fairness_metric = 0.0 if abs(min_sv) > 1e-9 else 1.0 # If both are zero, it's fair
     else:
-        fairness_metric = 1.0 - (max_sv - min_sv) / (abs(max_sv) + 1e-9) # Normalize by absolute max_sv
+        fairness_metric = 1.0 - (max_sv - min_sv) / (abs(max_sv) + 1e-9)
 
     metrics = {
         'avg_contribution': avg_contribution,
         'total_contribution': total_contribution,
-        'social_welfare': social_welfare,
+        'social_welfare': social_welfare, # Using sum of explicitly calculated payoffs
         'fairness': fairness_metric,
         'action_diversity': len(set(norm_contributions)) / n_agents if n_agents > 0 else 0.0,
-        **{f'agent_{i}_contrib': contrib for i, contrib in enumerate(episode_contributions)},
-        **{f'agent_{i}_norm_contrib': norm_contrib for i, norm_contrib in enumerate(norm_contributions)},
-        **{f'agent_{i}_shapley': sv for i, sv in enumerate(shapley_values)}
     }
     
+    # Add individual agent metrics
+    for i in range(n_agents):
+        metrics[f'agent_{i}_contrib'] = episode_contributions[i]
+        metrics[f'agent_{i}_norm_contrib'] = norm_contributions[i] if i < len(norm_contributions) else 0.0
+        metrics[f'agent_{i}_shapley'] = shapley_values[i] if i < len(shapley_values) else 0.0
+        metrics[f'agent_{i}_payoff'] = calculated_agent_payoffs[i] # Using explicitly calculated payoff
+
+    # If there are more endowments than agents with contributions (e.g. some agents didn't contribute)
+    # ensure all potential agents have default entries if not covered.
+    # This part might be redundant if n_agents is always derived from episode_contributions and matches endowments.
+    if len(endowments) > n_agents:
+        for i in range(n_agents, len(endowments)):
+            if f'agent_{i}_contrib' not in metrics: # Ensure we don't overwrite
+                 metrics[f'agent_{i}_contrib'] = 0.0
+                 metrics[f'agent_{i}_norm_contrib'] = 0.0
+                 metrics[f'agent_{i}_shapley'] = 0.0
+                 metrics[f'agent_{i}_payoff'] = endowments[i] # Default payoff if no contribution = endowment + 0 share
+
     return metrics
+
+# The run_simulation function needs to pass episode_rewards from env to calculate_metrics
+# as the second argument, now named episode_rewards_from_env for clarity in calculate_metrics.
 
 def run_simulation(
     algorithm: str,
     num_episodes: int,
-    # steps_per_episode: int, # Removed
     env: PublicGoodsGame,
     agents: List[Union[QAgent, DoubleQAgent]],
     output_dir: str
@@ -137,7 +174,7 @@ def run_simulation(
     Run MARL simulation, return and save metrics. Each episode is a single interaction.
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    num_agents = env.num_agents
+    num_agents = env.num_agents # Use this for initializing metrics_history
 
     metrics_history = {
         "avg_contribution": [],
@@ -146,12 +183,14 @@ def run_simulation(
         "fairness": [],
         "action_diversity": []
     }
+    # Initialize based on the number of agents the environment is configured for
     for i in range(num_agents):
         metrics_history[f"agent_{i}_contrib"] = []
         metrics_history[f"agent_{i}_norm_contrib"] = []
         metrics_history[f"agent_{i}_shapley"] = []
+        metrics_history[f"agent_{i}_payoff"] = []
     
-    states = env.reset() # Initial reset
+    states = env.reset()
     
     for episode in range(num_episodes):
         # If not the first episode, reset for the new episode
@@ -166,7 +205,6 @@ def run_simulation(
         next_states, rewards, done = env.step(actions) 
         
         episode_contributions = [0.0] * num_agents
-        # Rewards from env.step are the rewards for this single interaction (episode)
         episode_rewards = rewards 
         
         for agent_idx in range(num_agents):
@@ -178,22 +216,30 @@ def run_simulation(
         
         states = next_states # Current states become next_states for the next episode's start
         
-        # Calculate metrics for the episode
-        episode_metrics = calculate_metrics(episode_contributions, episode_rewards, env.r, env.endowments)
-        
-        for key, value in episode_metrics.items():
-            if key in metrics_history:
-                 metrics_history[key].append(value)
-        
-        if episode % 100 == 0:
-            print(f"Episode {episode}/{num_episodes} - Avg Contribution: {episode_metrics.get('avg_contribution', 0.0):.4f}, Social Welfare: {episode_metrics.get('social_welfare', 0.0):.4f}")
+        # Calculate and save metrics every 100 episodes
+        if (episode + 1) % 100 == 0:
+            episode_metrics = calculate_metrics(episode_contributions, episode_rewards, env.r, env.endowments)
+            
+            for key, value in episode_metrics.items():
+                if key in metrics_history:
+                    metrics_history[key].append(value)
+            
+            print(f"Episode {episode + 1}/{num_episodes} - Avg Contribution: {episode_metrics.get('avg_contribution', 0.0):.4f}, Social Welfare: {episode_metrics.get('social_welfare', 0.0):.4f}")
+            
+            # Save metrics to CSV every 100 episodes
+            metrics_df_data = {'episode': range(100, episode + 2, 100)}  # Episodes where metrics are calculated
+            for key, value_list in metrics_history.items():
+                metrics_df_data[key] = value_list
+
+            metrics_df = pd.DataFrame(metrics_df_data)
+            metrics_file = os.path.join(output_dir, f"{algorithm}_metrics.csv")
+            metrics_df.to_csv(metrics_file, index=False)
+            print(f"Metrics saved to {metrics_file}")
     
-    metrics_df_data = {'episode': range(num_episodes)}
+    # Final save to include all episodes
+    metrics_df_data = {'episode': range(100, num_episodes + 1, 100)}
     for key, value_list in metrics_history.items():
-        if len(value_list) == num_episodes:
-            metrics_df_data[key] = value_list
-        else:
-            metrics_df_data[key] = value_list + [np.nan] * (num_episodes - len(value_list))
+        metrics_df_data[key] = value_list
 
     metrics_df = pd.DataFrame(metrics_df_data)
     metrics_file = os.path.join(output_dir, f"{algorithm}_metrics.csv")
@@ -245,6 +291,3 @@ def run_simulation(
              print(f"Error: Could not process Q-table for agent {i} due to AttributeError (likely not a dict). Q-table data: {q_values_to_save}")
         except Exception as e:
             print(f"Error saving Q-table for agent {i}: {e}")
-
-
-    # Save detailed decision log if enabled

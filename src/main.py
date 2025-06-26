@@ -16,11 +16,14 @@ def main() -> None:
     """Run MARL experiments for multiple r and seeds."""
     # Environment parameters
     num_agents = 4
-    endowments = [0.5 * (i+1) for i in range(num_agents)]
-    multiplication_factors = [1.5, 2.0, 2.5, 3.0, 3.5]
-    action_space = [i * 0.04 for i in range(26)]  # 25 levels -> 0.0 to 1.0
-    state_bins = [(e, c) for e in [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5] 
-                 for c in [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]]
+    endowments = [0.5 * (i+1) for i in range(num_agents)] 
+    multiplication_factors = [3.5] 
+    action_space = [0, 0.5, 1]
+    # action_space = [round(i * 0.04, 2) for i in range(26)]  # 0.0 to 1.0 in steps of 0.04
+    
+    # The 'state_bins' for the environment will be the unique endowment values, represented as tuples.
+    unique_endowment_values = sorted(list(set(endowments)))
+    environment_state_bins = [(e,) for e in unique_endowment_values] 
     
     # Agent parameters
     learning_rate = 0.05
@@ -30,9 +33,9 @@ def main() -> None:
     epsilon_min = 0.05
     
     # Simulation parameters
-    num_episodes = 1000000
-    seeds = [42, 123, 456] 
-    output_dir = "results/"
+    num_episodes = 200000
+    seeds = [1,2,3,4,5,6,7,8,9,10] 
+    output_dir = "results_control/"
     
     try:
         # Create base output directory
@@ -50,7 +53,7 @@ def main() -> None:
                 endowments=endowments,
                 multiplication_factor=r,
                 action_space=action_space,
-                state_bins=state_bins
+                state_bins=environment_state_bins # Pass the simplified state bins
             )
             
             # Run experiments for each seed
@@ -64,14 +67,15 @@ def main() -> None:
                 
                 # Create and run Q-Learning agents
                 q_agents = [QAgent(
-                    state_space=state_bins,
+                    agent_endowment=endowments[i], 
+                    state_space=environment_state_bins, # Pass simplified state space
                     action_space=action_space,
                     learning_rate=learning_rate,
                     discount_factor=discount_factor,
                     epsilon=epsilon,
                     epsilon_decay=epsilon_decay,
                     epsilon_min=epsilon_min
-                ) for _ in range(num_agents)]
+                ) for i in range(num_agents)]
                 
                 print("Running Q-Learning simulation...")
                 run_simulation(
@@ -84,14 +88,15 @@ def main() -> None:
                 
                 # Create and run Double Q-Learning agents
                 double_q_agents = [DoubleQAgent(
-                    state_space=state_bins,
+                    agent_endowment=endowments[i], 
+                    state_space=environment_state_bins, # Pass simplified state space
                     action_space=action_space,
                     learning_rate=learning_rate,
                     discount_factor=discount_factor,
                     epsilon=epsilon,
                     epsilon_decay=epsilon_decay,
                     epsilon_min=epsilon_min
-                ) for _ in range(num_agents)]
+                ) for i in range(num_agents)]
                 
                 print("Running Double Q-Learning simulation...")
                 run_simulation(

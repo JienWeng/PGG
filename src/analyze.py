@@ -15,15 +15,43 @@ def aggregate_seed_data(base_dir: str, r: float, seeds: List[int], is_double_q: 
     for seed in seeds:
         seed_dir = os.path.join(base_dir, f"r{r}", f"seed{seed}")
         if os.path.exists(seed_dir):
+            # Assuming metrics files are named like "q_r2.0_seed1_metrics.csv" or "double_q_r2.0_seed1_metrics.csv"
+            # The simulation script saves them as f"{algorithm}_metrics.csv", e.g. "Q-Learning_metrics.csv"
+            # Let's adjust to match the simulation output naming convention if algorithm is "Q-Learning" or "Double Q-Learning"
+            algo_name_in_file = "Q-Learning" if not is_double_q else "Double Q-Learning" # Match simulation.py output
+            
+            # The simulation script saves metrics as {algorithm}_metrics.csv in the seed_output_dir
+            # e.g., Q-Learning_metrics.csv or Double Q-Learning_metrics.csv
+            # The provided analyze.py uses a different naming convention in metrics_file construction.
+            # Let's assume the file name is based on the prefix from the function call.
+            # The simulation script saves metrics as: os.path.join(output_dir, f"{algorithm}_metrics.csv")
+            # where output_dir is seed_output_dir and algorithm is "Q-Learning" or "Double Q-Learning"
+            # The analyze.py script uses: os.path.join(seed_dir, f"{prefix}_r{r}_seed{seed}_metrics.csv")
+            # This seems to be a mismatch. I will assume the analyze.py file naming is what's being used.
             metrics_file = os.path.join(seed_dir, f"{prefix}_r{r}_seed{seed}_metrics.csv")
             if os.path.exists(metrics_file):
-                metrics_dfs.append(pd.read_csv(metrics_file))
+                try:
+                    df = pd.read_csv(metrics_file)
+                    if 'episode' not in df.columns:
+                        print(f"Warning: 'episode' column missing in {metrics_file}")
+                        continue
+                    metrics_dfs.append(df)
+                except pd.errors.EmptyDataError:
+                    print(f"Warning: Empty metrics file {metrics_file}")
+                except Exception as e:
+                    print(f"Warning: Error reading {metrics_file}: {e}")
+            else:
+                print(f"Warning: Metrics file not found {metrics_file}")
                 
     if not metrics_dfs:
-        print(f"Warning: Missing data for r={r}, {'Double Q' if is_double_q else 'Q'}-Learning")
+        print(f"Warning: No valid metrics data found for r={r}, {'Double Q' if is_double_q else 'Q'}-Learning")
         return pd.DataFrame()
         
-    return pd.concat(metrics_dfs).groupby(level=0).mean()
+    combined_df = pd.concat(metrics_dfs)
+    # Group by the 'episode' column and calculate the mean for all other columns.
+    # This makes 'episode' the index of the aggregated DataFrame.
+    aggregated_df = combined_df.groupby('episode').mean() 
+    return aggregated_df
 
 def conduct_statistical_tests(q_metrics: pd.DataFrame, double_q_metrics: pd.DataFrame, output_dir: str, r: float) -> Dict:
     """Conduct paired t-tests for metrics."""
@@ -62,77 +90,197 @@ def conduct_statistical_tests(q_metrics: pd.DataFrame, double_q_metrics: pd.Data
 
 def plot_required_metrics(q_metrics: pd.DataFrame, double_q_metrics: pd.DataFrame, output_dir: str, r: float):
     """Plot the five required visualizations."""
+    if q_metrics.empty or double_q_metrics.empty:
+        print(f"Warning: Metrics data is empty for r={r}. Skipping plots.")
+        return
+
+    actual_episodes = q_metrics.index # Use the 'episode' index for the x-axis
+    # The smoothing window should be smaller than the number of data points if you want a smoothed line.
+    # If you have 50 data points (10k episodes / 200 per save), a window of 50 will result in a single point
+    # or a cumulative mean if min_periods=1. Let's use a smaller window for demonstration or add min_periods.
+    smoothing_window = 5 # Example: smooth over 5 recorded intervals (1000 episodes)
+    # If you want to use the original window=50, ensure min_periods=1 for a rolling mean line:
+    # rolling_op = lambda series: series.rolling(window=50, min_periods=1).mean()
+    # Or, for a smaller effective smoothing on the 50 points:
+    rolling_op = lambda series: series.rolling(window=smoothing_window, min_periods=1).mean()
+
+
     # 1. Normalized contribution rates
     plt.figure(figsize=(10, 6))
     for i in range(4):
         endowment = 0.5 * (i + 1)
-        q_norm = [c/endowment * 100 for c in q_metrics[f'agent_{i}_contrib']]
-        dq_norm = [c/endowment * 100 for c in double_q_metrics[f'agent_{i}_contrib']]
+        if f'agent_{i}_contrib' in q_metrics.columns:
+            # Ensure data is present for the agent before processing
+            if not q_metrics[f'agent_{i}_contrib'].dropna().empty:
+                q_norm_series = pd.Series([(c / endowment * 100) if endowment != 0 else 0 for c in q_metrics[f'agent_{i}_contrib']])
+                # Take last N points from the *original* episode scale if needed, here we plot all aggregated points
+                # For scatter, we usually don't smooth. The [-1000:] was for raw data, not aggregated.
+                # The q_metrics here is already aggregated (mean over seeds).
+                # The number of points in q_norm_series will be len(actual_episodes).
+                # The original code took last 1000 raw data points. Here we have few points.
+                # Let's plot all available aggregated points for the scatter.
+                ax = plt.gca()
+                ax.scatter([r] * len(q_norm_series), q_norm_series, alpha=0.3, label=f'Q-Learn e={endowment}')
         
-        plt.scatter([r] * len(q_norm[-1000:]), q_norm[-1000:], alpha=0.3, label=f'Q-Learn e={endowment}')
-        plt.scatter([r+0.1] * len(dq_norm[-1000:]), dq_norm[-1000:], alpha=0.3, label=f'Double-Q e={endowment}')
+        if f'agent_{i}_contrib' in double_q_metrics.columns:
+            if not double_q_metrics[f'agent_{i}_contrib'].dropna().empty:
+                dq_norm_series = pd.Series([(c / endowment * 100) if endowment != 0 else 0 for c in double_q_metrics[f'agent_{i}_contrib']])
+                ax = plt.gca()
+                ax.scatter([r+0.02] * len(dq_norm_series), dq_norm_series, alpha=0.3, marker='x', label=f'Double-Q e={endowment}')
     
     plt.xlabel('Multiplication Factor (r)')
     plt.ylabel('Normalized Contribution Rate (%)')
-    plt.title(f'Last 1000 Episodes Contribution Rates (r={r})')
-    plt.legend()
+    plt.title(f'Aggregated Normalized Contribution Rates (r={r})') # Updated title
+    handles, labels = plt.gca().get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    if by_label:
+        plt.legend(by_label.values(), by_label.keys(), bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f'normalized_contributions_r{r}.png'))
     plt.close()
     
     # 2. Social welfare over episodes
     plt.figure(figsize=(10, 6))
-    episodes = range(len(q_metrics))
-    plt.plot(episodes, q_metrics['social_welfare'].rolling(50).mean(), label='Q-Learning')
-    plt.plot(episodes, double_q_metrics['social_welfare'].rolling(50).mean(), label='Double Q-Learning')
+    if 'social_welfare' in q_metrics.columns:
+        plt.plot(actual_episodes, rolling_op(q_metrics['social_welfare']), label='Q-Learning')
+    if 'social_welfare' in double_q_metrics.columns:
+        plt.plot(actual_episodes, rolling_op(double_q_metrics['social_welfare']), label='Double Q-Learning')
     plt.xlabel('Episode')
     plt.ylabel('Social Welfare')
     plt.title(f'Social Welfare Evolution (r={r})')
     plt.legend()
+    plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f'social_welfare_r{r}.png'))
     plt.close()
     
     # 3. Individual contributions
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    fig_ind_contrib, (ax1_ind_contrib, ax2_ind_contrib) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
+    colors = plt.cm.Set2(np.linspace(0, 1, 4))
     for i in range(4):
-        ax1.plot(episodes, pd.Series(q_metrics[f'agent_{i}_contrib']).rolling(50).mean(),
-                label=f'Agent {i} (e={0.5*(i+1)})')
-        ax2.plot(episodes, pd.Series(double_q_metrics[f'agent_{i}_contrib']).rolling(50).mean(),
-                label=f'Agent {i} (e={0.5*(i+1)})')
+        if f'agent_{i}_contrib' in q_metrics.columns:
+            ax1_ind_contrib.plot(actual_episodes, rolling_op(pd.Series(q_metrics[f'agent_{i}_contrib'])),
+                    label=f'Agent {i} (e={0.5*(i+1)})', color=colors[i])
+        if f'agent_{i}_contrib' in double_q_metrics.columns:
+            ax2_ind_contrib.plot(actual_episodes, rolling_op(pd.Series(double_q_metrics[f'agent_{i}_contrib'])),
+                    label=f'Agent {i} (e={0.5*(i+1)})', color=colors[i])
     
-    ax1.set_title(f'Q-Learning Individual Contributions (r={r})')
-    ax2.set_title(f'Double Q-Learning Individual Contributions (r={r})')
-    ax1.legend()
-    ax2.legend()
+    ax1_ind_contrib.set_title(f'Q-Learning Individual Contributions (r={r})')
+    ax1_ind_contrib.set_ylabel('Contribution')
+    ax1_ind_contrib.legend()
+    ax2_ind_contrib.set_title(f'Double Q-Learning Individual Contributions (r={r})')
+    ax2_ind_contrib.set_xlabel('Episode')
+    ax2_ind_contrib.set_ylabel('Contribution')
+    ax2_ind_contrib.legend()
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f'individual_contributions_r{r}.png'))
+    plt.close(fig_ind_contrib)
+
+    # 4. Variance of Shapley Values Over Episodes
+    plt.figure(figsize=(10, 6)) # Changed from subplots to a single plot
+    
+    # Q-Learning Shapley Variance
+    shapley_cols_q = [col for col in q_metrics.columns if col.startswith('agent_') and col.endswith('_shapley')]
+    if shapley_cols_q and not q_metrics[shapley_cols_q].empty:
+        q_shapley_variance = q_metrics[shapley_cols_q].var(axis=1)
+        if not q_shapley_variance.dropna().empty:
+            plt.plot(actual_episodes, rolling_op(q_shapley_variance), label='Q-Learning Shapley Variance')
+
+    # Double Q-Learning Shapley Variance
+    shapley_cols_dq = [col for col in double_q_metrics.columns if col.startswith('agent_') and col.endswith('_shapley')]
+    if shapley_cols_dq and not double_q_metrics[shapley_cols_dq].empty:
+        dq_shapley_variance = double_q_metrics[shapley_cols_dq].var(axis=1)
+        if not dq_shapley_variance.dropna().empty:
+            plt.plot(actual_episodes, rolling_op(dq_shapley_variance), label='Double Q-Learning Shapley Variance')
+    
+    plt.title(f'Variance of Shapley Values Over Episodes (r={r})')
+    plt.xlabel('Episode')
+    plt.ylabel('Variance of Shapley Values')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'shapley_variance_r{r}.png')) # Changed filename
     plt.close()
 
-    # 4. Shapley values
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+    # 5. Normalized Shapley values
+    fig_norm_shapley, (ax1_norm_shapley, ax2_norm_shapley) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
     for i in range(4):
-        ax1.plot(episodes, pd.Series(q_metrics[f'agent_{i}_shapley']).rolling(50).mean(),
-                label=f'Agent {i} (e={0.5*(i+1)})')
-        ax2.plot(episodes, pd.Series(double_q_metrics[f'agent_{i}_shapley']).rolling(50).mean(),
-                label=f'Agent {i} (e={0.5*(i+1)})')
-    
-    ax1.set_title(f'Q-Learning Shapley Values (r={r})')
-    ax2.set_title(f'Double Q-Learning Shapley Values (r={r})')
-    ax1.legend()
-    ax2.legend()
+        if f'agent_{i}_shapley' in q_metrics.columns and f'agent_{i}_contrib' in q_metrics.columns:
+            agent_shapley_series_q = pd.Series(q_metrics[f'agent_{i}_shapley'])
+            agent_contrib_series_q = pd.Series(q_metrics[f'agent_{i}_contrib'])
+            normalized_shapley_q = (agent_shapley_series_q / (agent_contrib_series_q + 1e-9))
+            normalized_shapley_q = normalized_shapley_q.replace([np.inf, -np.inf], np.nan).fillna(0)
+            ax1_norm_shapley.plot(actual_episodes, rolling_op(normalized_shapley_q), 
+                    label=f'Agent {i} (e={0.5*(i+1)})', color=colors[i])
+
+        if f'agent_{i}_shapley' in double_q_metrics.columns and f'agent_{i}_contrib' in double_q_metrics.columns:
+            agent_shapley_series_dq = pd.Series(double_q_metrics[f'agent_{i}_shapley'])
+            agent_contrib_series_dq = pd.Series(double_q_metrics[f'agent_{i}_contrib'])
+            normalized_shapley_dq = (agent_shapley_series_dq / (agent_contrib_series_dq + 1e-9))
+            normalized_shapley_dq = normalized_shapley_dq.replace([np.inf, -np.inf], np.nan).fillna(0)
+            ax2_norm_shapley.plot(actual_episodes, rolling_op(normalized_shapley_dq), 
+                    label=f'Agent {i} (e={0.5*(i+1)})', color=colors[i])
+
+    ax1_norm_shapley.set_title(f'Q-Learning Normalized Shapley Values (Shapley/Contribution) (r={r})')
+    ax1_norm_shapley.set_ylabel('Normalized Shapley Value')
+    ax1_norm_shapley.legend()
+    ax2_norm_shapley.set_title(f'Double Q-Learning Normalized Shapley Values (Shapley/Contribution) (r={r})')
+    ax2_norm_shapley.set_xlabel('Episode')
+    ax2_norm_shapley.set_ylabel('Normalized Shapley Value')
+    ax2_norm_shapley.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f'shapley_values_r{r}.png'))
-    plt.close()
+    plt.savefig(os.path.join(output_dir, f'normalized_shapley_values_r{r}.png'))
+    plt.close(fig_norm_shapley)
+
+    # 6. Individual Payoffs (NEW PLOT)
+    fig_payoffs, (ax1_payoffs, ax2_payoffs) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
+    colors = plt.cm.Set2(np.linspace(0, 1, 4)) # Same colors as other plots
+    for i in range(4): # Assuming 4 agents
+        agent_label = f'Agent {i} (e={0.5*(i+1)})'
+        # Q-Learning Payoffs
+        if f'agent_{i}_payoff' in q_metrics.columns:
+            if not q_metrics[f'agent_{i}_payoff'].dropna().empty:
+                ax1_payoffs.plot(actual_episodes, rolling_op(pd.Series(q_metrics[f'agent_{i}_payoff'])),
+                                 label=agent_label, color=colors[i])
+        
+        # Double Q-Learning Payoffs
+        if f'agent_{i}_payoff' in double_q_metrics.columns:
+            if not double_q_metrics[f'agent_{i}_payoff'].dropna().empty:
+                ax2_payoffs.plot(actual_episodes, rolling_op(pd.Series(double_q_metrics[f'agent_{i}_payoff'])),
+                                 label=agent_label, color=colors[i])
+
+    ax1_payoffs.set_title(f'Q-Learning Individual Payoffs (r={r})')
+    ax1_payoffs.set_ylabel('Payoff')
+    ax1_payoffs.legend()
+    
+    ax2_payoffs.set_title(f'Double Q-Learning Individual Payoffs (r={r})')
+    ax2_payoffs.set_xlabel('Episode')
+    ax2_payoffs.set_ylabel('Payoff')
+    ax2_payoffs.legend()
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f'individual_payoffs_r{r}.png'))
+    plt.close(fig_payoffs)
 
     # Save mean and std dev of contribution rates
+    # The original code for stats_df used .iloc[-1000:], which is not applicable to already aggregated data
+    # with few points. We should calculate stats on the available aggregated points.
+    # Also, avg_contribution is already a percentage of endowment if it was calculated that way.
+    # If 'avg_contribution' in the CSV is the raw average action (0-1), then *100 is fine.
+    # The division by 200 was incorrect.
+    
+    # Assuming 'avg_contribution' in the CSV is the average action (fraction of endowment, 0-1)
+    # and we want to report it as a percentage.
+    q_avg_contrib_percent = q_metrics['avg_contribution'] * 100
+    dq_avg_contrib_percent = double_q_metrics['avg_contribution'] * 100
+
     stats_df = pd.DataFrame({
         'Algorithm': ['Q-Learning', 'Double Q-Learning'],
         'Mean Contribution (%)': [
-            q_metrics['avg_contribution'].iloc[-1000:].mean() / 200 * 100 ,
-            double_q_metrics['avg_contribution'].iloc[-1000:].mean() / 200 * 100
+            q_avg_contrib_percent.mean(),
+            dq_avg_contrib_percent.mean()
         ],
         'Std Dev (%)': [
-            q_metrics['avg_contribution'].iloc[-1000:].std() / 200 * 100,
-            double_q_metrics['avg_contribution'].iloc[-1000:].std() / 200 * 100
+            q_avg_contrib_percent.std(),
+            dq_avg_contrib_percent.std()
         ]
     })
     stats_df.to_csv(os.path.join(output_dir, f'contribution_stats_r{r}.csv'), index=False)
@@ -241,8 +389,9 @@ def plot_summary(
     output_dir: str
 ) -> None:
     """
-    Plot smoothed summary of contribution vs. r with error bars.
-    Proportion calculated as: (actual contribution / maximum possible contribution) * 100
+    Plot summary of contribution vs. r with error bars.
+    Mean and Std Dev calculated from the average proportion of endowment contributed
+    across agents, using data from the last 100 episodes.
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -251,61 +400,109 @@ def plot_summary(
     q_stds = []
     double_q_means = []
     double_q_stds = []
-    
-    window = 50  # Smoothing window
+
+    num_agents = 4
+    num_last_episodes_for_plot_stats = 1000 # Number of last episodes to consider for plot stats
+
     for r in r_values:
-        # Calculate proportions for Q-Learning
-        q_proportions = []
-        for i in range(4):
-            max_contribution = 0.5 * (i + 1) * 200 # Maximum possible contribution for agent i
-            agent_contrib = q_metrics[r][f'agent_{i}_contrib']
-            q_proportions.extend(agent_contrib / max_contribution)  # Convert to proportion
-        
-        q_smooth = pd.Series(q_proportions).rolling(window=window, min_periods=1, center=True).mean()
-        q_means.append(q_smooth.mean() * 100)  # Convert to percentage
-        q_stds.append(q_smooth.std() * 100)
-        
-        # Calculate proportions for Double Q-Learning
-        dq_proportions = []
-        for i in range(4):
-            max_contribution = 0.5 * (i + 1) * 200
-            agent_contrib = double_q_metrics[r][f'agent_{i}_contrib']
-            dq_proportions.extend(agent_contrib / max_contribution)
+        # --- Q-Learning ---
+        if r in q_metrics and not q_metrics[r].empty:
+            metrics_df_q = q_metrics[r]
+            # DataFrame to store proportions for each agent for Q-Learning
+            q_agent_proportions_df = pd.DataFrame(index=metrics_df_q.index)
+            for i in range(num_agents):
+                if f'agent_{i}_contrib' in metrics_df_q.columns:
+                    max_contribution = 0.5 * (i + 1)
+                    agent_contrib_series = metrics_df_q[f'agent_{i}_contrib']
+                    if not agent_contrib_series.empty and max_contribution > 0:
+                        q_agent_proportions_df[f'agent_{i}_prop'] = agent_contrib_series / max_contribution
+                    else:
+                        q_agent_proportions_df[f'agent_{i}_prop'] = np.nan
+                else:
+                    q_agent_proportions_df[f'agent_{i}_prop'] = np.nan
             
-        dq_smooth = pd.Series(dq_proportions).rolling(window=window, min_periods=1, center=True).mean()
-        double_q_means.append(dq_smooth.mean() * 100)
-        double_q_stds.append(dq_smooth.std() * 100)
+            # Calculate the average proportion across agents for each episode
+            q_avg_prop_per_episode = q_agent_proportions_df.mean(axis=1, skipna=True)
+            # Consider last N episodes for stats
+            q_relevant_episodes_avg_prop = q_avg_prop_per_episode.iloc[-num_last_episodes_for_plot_stats:]
+            
+            if not q_relevant_episodes_avg_prop.empty:
+                q_means.append(q_relevant_episodes_avg_prop.mean() * 100)  # Convert to percentage
+                q_stds.append(q_relevant_episodes_avg_prop.std() * 100)
+            else:
+                q_means.append(np.nan)
+                q_stds.append(np.nan)
+        else:
+            q_means.append(np.nan)
+            q_stds.append(np.nan)
+        
+        # --- Double Q-Learning ---
+        if r in double_q_metrics and not double_q_metrics[r].empty:
+            metrics_df_dq = double_q_metrics[r]
+            # DataFrame to store proportions for each agent for Double Q-Learning
+            dq_agent_proportions_df = pd.DataFrame(index=metrics_df_dq.index)
+            for i in range(num_agents):
+                if f'agent_{i}_contrib' in metrics_df_dq.columns:
+                    max_contribution = 0.5 * (i + 1)
+                    agent_contrib_series = metrics_df_dq[f'agent_{i}_contrib']
+                    if not agent_contrib_series.empty and max_contribution > 0:
+                        dq_agent_proportions_df[f'agent_{i}_prop'] = agent_contrib_series / max_contribution
+                    else:
+                        dq_agent_proportions_df[f'agent_{i}_prop'] = np.nan
+                else:
+                    dq_agent_proportions_df[f'agent_{i}_prop'] = np.nan
+
+            # Calculate the average proportion across agents for each episode
+            dq_avg_prop_per_episode = dq_agent_proportions_df.mean(axis=1, skipna=True)
+            # Consider last N episodes for stats
+            dq_relevant_episodes_avg_prop = dq_avg_prop_per_episode.iloc[-num_last_episodes_for_plot_stats:]
+
+            if not dq_relevant_episodes_avg_prop.empty:
+                double_q_means.append(dq_relevant_episodes_avg_prop.mean() * 100) # Convert to percentage
+                double_q_stds.append(dq_relevant_episodes_avg_prop.std() * 100)
+            else:
+                double_q_means.append(np.nan)
+                double_q_stds.append(np.nan)
+        else:
+            double_q_means.append(np.nan)
+            double_q_stds.append(np.nan)
     
     # Create plot
     plt.figure(figsize=(10, 6))
     
-    # Plot Q-Learning with error bars
-    plt.errorbar(r_values, q_means, yerr=q_stds, 
-                fmt='o-', color='#1f77b4', capsize=5, 
-                label='Q-Learning', linewidth=2, markersize=8)
+    valid_indices_q = ~np.isnan(q_means)
+    valid_indices_dq = ~np.isnan(double_q_means)
+    r_values_np = np.array(r_values)
+
+    if np.any(valid_indices_q):
+        plt.errorbar(r_values_np[valid_indices_q], np.array(q_means)[valid_indices_q], yerr=np.array(q_stds)[valid_indices_q], 
+                    fmt='o-', color='#1f77b4', capsize=5, 
+                    label='Q-Learning', linewidth=2, markersize=8)
     
-    # Plot Double Q-Learning with error bars
-    plt.errorbar(r_values, double_q_means, yerr=double_q_stds,
-                fmt='s-', color='#ff7f0e', capsize=5,
-                label='Double Q-Learning', linewidth=2, markersize=8)
+    if np.any(valid_indices_dq):
+        plt.errorbar(r_values_np[valid_indices_dq], np.array(double_q_means)[valid_indices_dq], yerr=np.array(double_q_stds)[valid_indices_dq],
+                    fmt='s-', color='#ff7f0e', capsize=5,
+                    label='Double Q-Learning', linewidth=2, markersize=8)
     
-    # Add benchmark lines
     plt.axhline(y=25, color='gray', linestyle='--', label='25% Benchmark', alpha=0.5)
     plt.axhline(y=50, color='gray', linestyle='-.', label='50% Benchmark', alpha=0.5)
     
     plt.xlabel('Multiplication Factor (r)', fontsize=12)
-    plt.ylabel('Average Contribution (% of endowment)', fontsize=12)
-    plt.title('Average Contribution vs. Multiplication Factor', fontsize=14)
+    plt.ylabel('Average Contribution (% of endowment, last 1000 ep.)', fontsize=12) 
+    plt.title('Average Contribution vs. Multiplication Factor (Last 1000 Episodes)', fontsize=14) 
     plt.grid(True, alpha=0.3)
-    plt.legend(fontsize=10, loc='upper left')
     
-    # Set axis limits
-    plt.xlim(min(r_values) - 0.1, max(r_values) + 0.1)
-    plt.ylim(0, 100)  # Percentage scale
-    plt.xticks(r_values)
+    handles, labels = plt.gca().get_legend_handles_labels()
+    if handles:
+        plt.legend(fontsize=10, loc='upper left')
+    
+    if r_values:
+        plt.xlim(min(r_values) - 0.1, max(r_values) + 0.1)
+        plt.xticks(r_values)
+    plt.ylim(0, 100)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'contribution_vs_r.png'), 
+    plt.savefig(os.path.join(output_dir, 'contribution_vs_r_last1000ep.png'), # Updated filename
                 dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -314,35 +511,62 @@ def save_consolidated_results(
     test_results_by_r: Dict[float, Dict], 
     output_dir: str
 ) -> None:
-    """Save consolidated contribution statistics and test results across all r values."""
+    """
+    Save consolidated contribution statistics and test results across all r values.
+    "Mean Contribution" is calculated as the average proportion of endowment contributed.
+    """
     
-    # Prepare contribution statistics data
-    contribution_stats = []
-    for r, (q_metrics, dq_metrics) in metrics_by_r.items():
-        # Calculate stats for last 1000 episodes
-        q_stats = {
-            'r': r,
-            'Algorithm': 'Q-Learning',
-            'Mean Contribution (%)': q_metrics['avg_contribution'].iloc[-1000:].mean() / 200 * 100,
-            'Std Dev (%)': q_metrics['avg_contribution'].iloc[-1000:].std() / 200 * 100
-        }
-        
-        dq_stats = {
-            'r': r,
-            'Algorithm': 'Double Q-Learning',
-            'Mean Contribution (%)': dq_metrics['avg_contribution'].iloc[-1000:].mean() / 200 * 100,
-            'Std Dev (%)': dq_metrics['avg_contribution'].iloc[-1000:].std() / 200 * 100
-        }
-        
-        contribution_stats.extend([q_stats, dq_stats])
+    contribution_stats_list = [] # Renamed from contribution_stats to avoid confusion
+    num_agents = 4 # Assuming 4 agents as used elsewhere in the script
+
+    for r, (q_metrics_df, dq_metrics_df) in metrics_by_r.items():
+        for algo_name, metrics_df in [('Q-Learning', q_metrics_df), ('Double Q-Learning', dq_metrics_df)]:
+            if metrics_df.empty:
+                print(f"Warning: Empty metrics for r={r}, Algorithm={algo_name}. Skipping contribution stats.")
+                continue
+
+            # Calculate average proportion of endowment contributed
+            all_agent_proportions_df = pd.DataFrame(index=metrics_df.index)
+            
+            for i in range(num_agents):
+                endowment = 0.5 * (i + 1)
+                agent_contrib_col = f'agent_{i}_contrib'
+                
+                if agent_contrib_col in metrics_df.columns:
+                    # Ensure endowment is not zero to avoid division by zero, though not expected here
+                    if endowment == 0:
+                         all_agent_proportions_df[f'agent_{i}_prop'] = 0.0 # Or handle as NaN if appropriate
+                    else:
+                        all_agent_proportions_df[f'agent_{i}_prop'] = metrics_df[agent_contrib_col] / endowment
+                else:
+                    print(f"Warning: Column {agent_contrib_col} not found for r={r}, Algo={algo_name}. Agent proportion will be missing.")
+                    all_agent_proportions_df[f'agent_{i}_prop'] = np.nan # Add NaN column if agent data is missing
+
+            # Calculate the average proportion across agents for each episode
+            # This Series will have one value per episode: the average of (contrib/endowment) over the agents
+            avg_prop_contrib_per_episode = all_agent_proportions_df.mean(axis=1, skipna=True)
+
+            # Consider last 1000 episodes for stats, or fewer if not available
+            relevant_episodes_avg_prop = avg_prop_contrib_per_episode.iloc[-1000:]
+            
+            mean_avg_proportion = relevant_episodes_avg_prop.mean()
+            std_dev_avg_proportion = relevant_episodes_avg_prop.std()
+
+            algo_stats = {
+                'r': r,
+                'Algorithm': algo_name,
+                'Mean Contribution': mean_avg_proportion, # This now represents average proportion
+                'Std Dev': std_dev_avg_proportion         # Std dev of average proportions
+            }
+            contribution_stats_list.append(algo_stats)
     
     # Save contribution statistics
-    pd.DataFrame(contribution_stats).to_csv(
+    pd.DataFrame(contribution_stats_list).to_csv(
         os.path.join(output_dir, 'contribution_statistics_all_r.csv'),
         index=False
     )
     
-    # Prepare statistical test results
+    # Prepare statistical test results (this part remains unchanged)
     test_stats = []
     for r, results in test_results_by_r.items():
         for metric, stats in results.items():
@@ -370,7 +594,7 @@ def main() -> None:
     test_results_by_r = {}
     r_dirs = [d for d in os.listdir(base_dir) if d.startswith("r")]
     multiplication_factors = sorted([float(d.replace("r", "")) for d in r_dirs])
-    seeds = [42, 123, 456]
+    seeds = [1,2,3,4,5,6,7,8,9,10]
     
     print(f"Found data for r values: {multiplication_factors}")
     
