@@ -1,13 +1,13 @@
 # Generated data files
-*.csv
+# *.csv
 
 # Generated plots
 *.png
 
 # Results directories
-results/
-results_analysis/
-results_action=*/
+# results/
+# results_analysis/
+# results_action=*/
 
 # Analysis results
 results_analysis/
